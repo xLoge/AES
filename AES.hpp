@@ -304,25 +304,13 @@ namespace AES
         return str;
     }
 
-    void make_cbc_ready(std::vector<std::uint8_t>& v) noexcept
+        void make_cbc_ready(std::vector<std::uint8_t>& _vec) noexcept
     {
-        if (v.size() % 16 == 0) {
+        if (_vec.size() % 16 == 0) {
             return;
         }
 
-        v.push_back(0); // add null byte
-
-        if (v.size() % 16 == 0) {
-            return;
-        }
-
-        std::size_t new_size = v.size() + (16 - (v.size() % 16)); // fill rest with random bytes
-        std::mt19937 mt(std::random_device{ }());
-        std::uniform_int_distribution<> dist(static_cast<std::uint8_t>(0), static_cast<std::uint8_t>(255));
-
-        while (v.size() < new_size) {
-            v.push_back(dist(mt));
-        }
+        _vec.resize(_vec.size() + (16 - (_vec.size() % 16)), 0);
     }
 }
 
