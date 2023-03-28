@@ -10,7 +10,7 @@
 
 int main()
 {
-    AES::AES<AES::AES_256> aes;
+    AES::AES_T<AES::AES_256> aes;
 
     aes.set_random_key();
     aes.set_random_iv();
