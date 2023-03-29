@@ -244,6 +244,10 @@ namespace AES
 
 namespace AES
 {
+    using string = std::string;
+    using vector = std::vector<std::uint8_t>;
+    using unique_ptr = std::unique_ptr<std::uint8_t[]>;
+
     enum AES_KEY
     {
         AES_128 = 128,
@@ -304,13 +308,18 @@ namespace AES
         return str;
     }
 
-        void make_cbc_ready(std::vector<std::uint8_t>& _vec) noexcept
+    void make_ready(std::vector<std::uint8_t>& _vec) noexcept
     {
-        if (_vec.size() % 16 == 0) {
-            return;
+        if (_vec.size() % 16 != 0) {
+            _vec.resize(_vec.size() + (16 - (_vec.size() % 16)), 0);
         }
+    }
 
-        _vec.resize(_vec.size() + (16 - (_vec.size() % 16)), 0);
+    void make_ready(std::string& _str) noexcept
+    {
+        if (_str.size() % 16 != 0) {
+            _str.resize(_str.size() + (16 - (_str.size() % 16)), 0);
+        }
     }
 }
 
@@ -319,40 +328,51 @@ namespace AES
     class AES
     {
     protected:
-        static constexpr std::size_t m_bytes = 4;
-        static constexpr std::size_t m_max_expkey_size = 4 * m_bytes * (14 + 1); // 4 * bytes * (max columns + 1)
-        static constexpr std::size_t m_block_bytes_len = 4 * m_bytes;
-        static constexpr std::size_t m_ivsize = m_block_bytes_len;
+        static constexpr std::size_t BYTES = 4;
+        static constexpr std::size_t BLOCK_BYTES = 4 * BYTES;
+        static constexpr std::size_t IV_SIZE = BLOCK_BYTES;
+        static constexpr std::size_t MAX_EXP_KEY_SIZE = 4 * BYTES * (14 + 1); // 4 * bytes * (max columns + 1)
+
         AES_KEY m_mode = AES_256;
         std::uint8_t m_keysize = m_mode / 4;
         std::uint8_t m_columns = m_mode / 32;
         std::uint8_t m_rounds = m_columns + 6;
 
-    private:
-        // mutable because of std::move
-        mutable std::vector<std::uint8_t> m_key{ };
-        mutable std::vector<std::uint8_t> m_iv{ };
+        unique_ptr m_expkey = std::make_unique<std::uint8_t[]>(MAX_EXP_KEY_SIZE);
+        unique_ptr m_iv = std::make_unique<std::uint8_t[]>(IV_SIZE);
 
     public:
-        constexpr AES() = default;
+        AES() = default;
 
         AES(const AES_KEY _key_len)
-            :m_mode(_key_len)
+            : m_mode(_key_len)
         {
 
         }
 
-    public:
-
-        // --- KEY ---
-        void set_key(const std::vector<std::uint8_t>& _key)
+        void set_key(const vector& _key)
         {
-            check_key(_key.size());
-            m_key = _key;
-            m_key.resize(
-                static_cast<std::size_t>(4) * m_bytes * (m_rounds + 1)
-            );
-            key_expansion(_key.data(), m_key.data());
+            if (_key.size() != m_keysize) {
+                key_length_error();
+            }
+            expand_key(_key.data(), m_expkey.get());
+        }
+
+        void set_iv(const vector& _iv)
+        {
+            if (_iv.size() != IV_SIZE) {
+                key_length_error();
+            }
+            std::memcpy(m_iv.get(), _iv.data(), IV_SIZE);
+        }
+
+        void set_mode(const AES_KEY _key_len)
+        {
+            m_mode = m_mode;
+            m_keysize = m_mode / 4;
+            m_columns = m_mode / 32;
+            m_rounds = m_columns + 6;
+            std::memset(m_expkey.get(), 0, MAX_EXP_KEY_SIZE);
         }
 
         void set_random_key()
@@ -360,322 +380,41 @@ namespace AES
             set_key(random_key(m_mode));
         }
 
-        void set_iv(const std::vector<std::uint8_t>& _iv)
-        {
-            check_iv(_iv.size());
-            m_iv = _iv;
-        }
-        
         void set_random_iv()
         {
             set_iv(random_iv());
         }
 
-        void set_keysize(const AES_KEY _key_len)
+        _NODISCARD std::uint8_t* expanded_key() noexcept
         {
-            if (_key_len != m_keysize * 4) {
-                m_columns = _key_len / 32;
-                m_rounds = m_columns + 6;
-                m_keysize = _key_len / 4;
-                m_key.clear();
-            }
+            return m_expkey.get();
         }
 
-        _NODISCARD const std::vector<std::uint8_t>& iv() const noexcept
+        _NODISCARD const std::uint8_t* expanded_key() const noexcept
         {
-            return m_iv;
-        }
-
-        _NODISCARD bool has_iv() const noexcept
-        {
-            return (m_iv.size() == m_ivsize);
-        }
-
-        _NODISCARD const std::vector<std::uint8_t>& key() const noexcept
-        {
-            return m_key;
+            return m_expkey.get();
         }
 
         _NODISCARD bool has_key() const noexcept
         {
-            return (m_key.size() == m_keysize);
+            return (*m_expkey.get() != '\0');
         }
 
-    public:
-        // --- ECB ---
-        _NODISCARD std::unique_ptr<std::uint8_t[]> encrypt_ecb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::size_t _in_length) const
+        _NODISCARD std::uint8_t* iv() noexcept
         {
-            check_length(_in_length);
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_max_expkey_size> expkey;
-
-            key_expansion(_key, expkey.data());
-
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
-            {
-                encrypt_block(&_plain[i], &output[i], expkey.data());
-            }
-
-            return std::move(output);
+            return m_iv.get();
         }
 
-        _NODISCARD std::unique_ptr<std::uint8_t[]> decrypt_ecb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::size_t _in_length) const
+        _NODISCARD const std::uint8_t* iv() const noexcept
         {
-            check_length(_in_length);
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_max_expkey_size> expkey;
-
-            key_expansion(_key, expkey.data());
-
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
-            {
-                decrypt_block(&_cipher[i], &output[i], expkey.data());
-            }
-
-            return std::move(output);
+            return m_iv.get();
         }
 
-        _NODISCARD std::vector<std::uint8_t> encrypt_ecb(const std::vector<std::uint8_t>& _plain, const std::vector<std::uint8_t>& _key) const
+        _NODISCARD bool has_iv() const noexcept
         {
-            const auto output = encrypt_ecb(_plain.data(), _key.data(), _plain.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
+            return (*m_iv.get() != '\0');
         }
 
-        _NODISCARD std::vector<std::uint8_t> decrypt_ecb(const std::vector<std::uint8_t>& _cipher, const std::vector<std::uint8_t>& _key) const
-        {
-            const auto output = decrypt_ecb(_cipher.data(), _key.data(), _cipher.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());;
-        }
-
-        // Encrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> encrypt_ecb(const std::vector<std::uint8_t>& _plain) const
-        {
-            check_length(_plain.size());
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<uint8_t[]>(_plain.size());
-
-            for (std::size_t i = 0; i < _plain.size(); i += m_block_bytes_len)
-            {
-                encrypt_block(&_plain[i], &output[i], m_key.data());
-            }
-
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
-        }
-
-        // Decrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> decrypt_ecb(const std::vector<std::uint8_t>& _cipher) const
-        {
-            check_length(_cipher.size());
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<uint8_t[]>(_cipher.size());
-
-            for (std::size_t i = 0; i < _cipher.size(); i += m_block_bytes_len)
-            {
-                decrypt_block(&_cipher[i], &output[i], m_key.data());
-            }
-
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
-        }
-
-        // --- CBC ---
-        _NODISCARD std::unique_ptr<std::uint8_t[]> encrypt_cbc(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length) const
-        {
-            check_length(_in_length);
-
-            std::array<std::uint8_t, m_block_bytes_len> block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_max_expkey_size> expkey;
-
-            key_expansion(_key, expkey.data());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
-            {
-                xor_blocks(block.data(), &_plain[i], block.data());
-                encrypt_block(block.data(), &output[i], expkey.data());
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
-            }
-
-            return std::move(output);
-        }
-
-        _NODISCARD std::unique_ptr<std::uint8_t[]> decrypt_cbc(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length) const
-        {
-            check_length(_in_length);
-
-            std::array<std::uint8_t, m_block_bytes_len> block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_max_expkey_size> expkey;
-
-            key_expansion(_key, expkey.data());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
-            {
-                decrypt_block(&_cipher[i], &output[i], expkey.data());
-                xor_blocks(block.data(), &output[i], &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
-            }
-
-            return std::move(output);
-        }
-
-        _NODISCARD std::vector<std::uint8_t> encrypt_cbc(const std::vector<std::uint8_t>& _plain, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv) const
-        {
-            const auto output = encrypt_cbc(_plain.data(), _key.data(), _iv.data(), _plain.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
-        }
-
-        _NODISCARD std::vector<std::uint8_t> decrypt_cbc(const std::vector<std::uint8_t>& _enc, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv) const
-        {
-            const auto output = decrypt_cbc(_enc.data(), _key.data(), _iv.data(), _enc.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _enc.size());
-        }
-
-        // Encrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> encrypt_cbc(const std::vector<std::uint8_t>& _plain) const
-        {
-            check_length(_plain.size());
-
-            std::array<std::uint8_t, m_block_bytes_len> block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_plain.size());
-
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _plain.size(); i += m_block_bytes_len)
-            {
-                xor_blocks(block.data(), &_plain[i], block.data());
-                encrypt_block(block.data(), &output[i], m_key.data());
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
-            }
-
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
-        }
-
-        // Decrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> decrypt_cbc(const std::vector<std::uint8_t>& _cipher) const
-        {
-            check_length(_cipher.size());
-
-            std::array<std::uint8_t, m_block_bytes_len> block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_cipher.size());
-
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _cipher.size(); i += m_block_bytes_len)
-            {
-                decrypt_block(&_cipher[i], &output[i], m_key.data());
-                xor_blocks(block.data(), &output[i], &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
-            }
-
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
-        }
-
-        // --- CFB ---
-        _NODISCARD std::unique_ptr<std::uint8_t[]> encrypt_cfb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length) const noexcept
-        {
-            check_length(_in_length);
-
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_max_expkey_size> expkey;
-
-            key_expansion(_key, expkey.data());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
-            {
-                encrypt_block(block.data(), encrypted_block.data(), expkey.data());
-                xor_blocks(&_plain[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
-            }
-
-            return std::move(output);
-        }
-
-        _NODISCARD std::unique_ptr<std::uint8_t[]> decrypt_cfb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length) const noexcept
-        {
-            check_length(_in_length);
-
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_max_expkey_size> expkey;
-
-            key_expansion(_key, expkey.data());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
-            {
-                encrypt_block(block.data(), encrypted_block.data(), expkey.data());
-                xor_blocks(&_cipher[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
-            }
-
-            return std::move(output);
-        }
-
-        _NODISCARD std::vector<std::uint8_t> encrypt_cfb(const std::vector<std::uint8_t>& _plain, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv) const noexcept
-        {
-            const auto output = encrypt_cfb(_plain.data(), _key.data(), _iv.data(), _plain.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
-        }
-
-        _NODISCARD std::vector<std::uint8_t> decrypt_cfb(const std::vector<std::uint8_t>& _cipher, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv) const noexcept
-        {
-            const auto output = decrypt_cfb(_cipher.data(), _key.data(), _iv.data(), _cipher.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
-        }
-
-        _NODISCARD std::vector<std::uint8_t> encrypt_cfb(const std::vector<std::uint8_t>& _plain) const
-        {
-            check_length(_plain.size());
-
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_plain.size());
-
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _plain.size(); i += m_block_bytes_len)
-            {
-                encrypt_block(block.data(), encrypted_block.data(), m_key.data());
-                xor_blocks(&_plain[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
-            }
-
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
-        }
-
-        _NODISCARD std::vector<std::uint8_t> decrypt_cfb(const std::vector<std::uint8_t>& _cipher)
-        {
-            check_length(_cipher.size());
-
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
-
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_cipher.size());
-
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _cipher.size(); i += m_block_bytes_len)
-            {
-                encrypt_block(block.data(), encrypted_block.data(), m_key.data());
-                xor_blocks(&_cipher[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
-            }
-
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
-        }
-
-    public:
         _NODISCARD operator bool() const noexcept
         {
             return (has_key() && has_iv());
@@ -684,61 +423,746 @@ namespace AES
         _NODISCARD AES& operator=(const AES& _aes) noexcept
         {
             if (_aes) {
-                m_key = _aes.m_key;
-                m_iv = _aes.m_iv;
                 m_mode = _aes.m_mode;
                 m_columns = _aes.m_columns;
-                m_rounds = _aes.m_rounds;
                 m_keysize = _aes.m_keysize;
+                m_rounds = _aes.m_rounds;
+                std::memcpy(m_iv.get(), _aes.m_iv.get(), IV_SIZE);
+                std::memcpy(m_expkey.get(), _aes.m_expkey.get(), MAX_EXP_KEY_SIZE);
             }
             return *this;
         }
 
-        friend std::ostream& operator<<(std::ostream& _out, const AES& _aes) noexcept
+    public:
+        // --- ECB ---
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_ecb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::size_t _plain_size)
         {
-            _out << "AES " << _aes.m_keysize * 4 << ":\n";
-            _out << "KEYLEN: " << _aes.m_keysize << '\n';
-            _out << "IV LEN: " << 16 << "\n\n";
-            if (_aes.has_key())
+            check_data(_plain_size);
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
             {
-                _out << "----KEY----\n{ ";
-                for (std::size_t i = 0; i != _aes.key().size() - 1; ++i)
-                {
-                    _out << static_cast<std::int32_t>(_aes.key()[i]) << ", ";
-                }
-                _out << static_cast<std::int32_t>(_aes.key().back()) << " }\n\n";
+                encrypt_block(&_plain[i], &output[i], expkey.data());
             }
-            else {
-                _out << "NO KEY SET\n\n";
-            }
-            if (_aes.has_iv())
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_ecb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::size_t _cipher_size)
+        {
+            check_data(_cipher_size);
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
             {
-                _out << "----IV----\n{ ";
-                for (std::size_t i = 0; i != _aes.iv().size() - 1; ++i)
-                {
-                    _out << static_cast<std::int32_t>(_aes.iv()[i]) << ", ";
-                }
-                _out << static_cast<std::int32_t>(_aes.iv().back()) << " }\n\n";
+                decrypt_block(&_cipher[i], &output[i], expkey.data());
             }
-            else {
-                _out << "NO IV SET\n\n";
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_ecb(const vector& _plain, const vector& _key)
+        {
+            const unique_ptr output = encrypt_ecb(
+                _plain.data(),
+                _key.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_ecb(const vector& _cipher, const vector& _key)
+        {
+            const unique_ptr output = decrypt_ecb(
+                _cipher.data(),
+                _key.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_ecb(const string& _plain, const string& _key)
+        {
+            const unique_ptr output = encrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                _plain.size());
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_ecb(const string& _cipher, const string& _key)
+        {
+            const unique_ptr output = decrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
+
+        // -- Internal --
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_ecb(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+
+            unique_ptr output = std::make_unique<uint8_t[]>(_plain_size);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(&_plain[i], &output[i], m_expkey.get());
             }
-            return _out;
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_ecb(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
+        {
+            check_data(_cipher_size);
+            check_key();
+
+            unique_ptr output = std::make_unique<uint8_t[]>(_cipher_size);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                decrypt_block(&_cipher[i], &output[i], m_expkey.get());
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_ecb(const vector& _plain) const
+        {
+            const unique_ptr output = encrypt_ecb(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_ecb(const vector& _cipher) const
+        {
+            const unique_ptr output = decrypt_ecb(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_ecb(const string& _plain) const
+        {
+            const unique_ptr output = encrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_ecb(const string& _cipher) const
+        {
+            const unique_ptr output = decrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
+
+        // --- CBC ---
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_cbc(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _plain_size)
+        {
+            check_data(_plain_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                xor_blocks(block.data(), &_plain[i], block.data());
+                encrypt_block(block.data(), &output[i], expkey.data());
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_cbc(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _cipher_size)
+        {
+            check_data(_cipher_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            unique_ptr output = std::make_unique<uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                decrypt_block(&_cipher[i], &output[i], expkey.data());
+                xor_blocks(block.data(), &output[i], &output[i]);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_cbc(const vector& _plain, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = encrypt_cbc(
+                _plain.data(),
+                _key.data(),
+                _iv.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_cbc(const vector& _cipher, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = decrypt_cbc(
+                _cipher.data(),
+                _key.data(),
+                _iv.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_cbc(const string& _plain, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = encrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_cbc(const string& _cipher, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = decrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // -- Internal --
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_cbc(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                xor_blocks(block.data(), &_plain[i], block.data());
+                encrypt_block(block.data(), &output[i], m_expkey.get());
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_cbc(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
+        {
+            check_data(_cipher_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                decrypt_block(&_cipher[i], &output[i], m_expkey.get());
+                xor_blocks(block.data(), &output[i], &output[i]);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_cbc(const vector& _plain)
+        {
+            const unique_ptr output = encrypt_cbc(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_cbc(const vector& _cipher)
+        {
+            const unique_ptr output = decrypt_cbc(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_cbc(const string& _plain)
+        {
+            const unique_ptr output = encrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_cbc(const string& _cipher)
+        {
+            const unique_ptr output = decrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
+
+        // --- CTR ---
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_ctr(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _plain_size)
+        {
+            check_data(_plain_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(counter.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), expkey.data());
+                xor_blocks(block.data(), &_plain[i], &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_ctr(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _cipher_size)
+        {
+            check_data(_cipher_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(counter.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), expkey.data());
+                xor_blocks(&_cipher[i], block.data(), &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_ctr(const vector& _plain, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = encrypt_ctr(
+                _plain.data(),
+                _key.data(),
+                _iv.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_ctr(const vector& _cipher, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = decrypt_ctr(
+                _cipher.data(),
+                _key.data(),
+                _iv.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_ctr(const string& _plain, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = encrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_ctr(const string& _cipher, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = decrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
+
+        // -- Internal --
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_ctr(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            std::memcpy(counter.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), m_expkey.get());
+                xor_blocks(block.data(), &_plain[i], &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_ctr(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
+        {
+            check_data(_cipher_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            std::memcpy(counter.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), m_expkey.get());
+                xor_blocks(&_cipher[i], block.data(), &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_ctr(const vector& _plain)
+        {
+            const unique_ptr output = encrypt_ctr(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_ctr(const vector& _cipher)
+        {
+            const unique_ptr output = decrypt_ctr(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_ctr(const string& _plain)
+        {
+            const unique_ptr output = encrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_ctr(const string& _cipher)
+        {
+            const unique_ptr output = decrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
+
+        // --- CFB ---
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_cfb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _plain_size)
+        {
+            check_data(_plain_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(block.data(), encrypted_block.data(), expkey.data());
+                xor_blocks(&_plain[i], encrypted_block.data(), &output[i]);
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_cfb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _cipher_size)
+        {
+            check_data(_cipher_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, MAX_EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(block.data(), encrypted_block.data(), expkey.data());
+                xor_blocks(&_cipher[i], encrypted_block.data(), &output[i]);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_cfb(const vector& _plain, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = encrypt_cfb(
+                _plain.data(),
+                _key.data(),
+                _iv.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_cfb(const vector& _cipher, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = decrypt_cfb(
+                _cipher.data(),
+                _key.data(),
+                _iv.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_cfb(const string& _plain, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = encrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_cfb(const string& _cipher, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = decrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // -- Internal --
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_cfb(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
+
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(block.data(), encrypted_block.data(), m_expkey.get());
+                xor_blocks(&_plain[i], encrypted_block.data(), &output[i]);
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_cfb(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
+        {
+            check_data(_cipher_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
+
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(block.data(), encrypted_block.data(), m_expkey.get());
+                xor_blocks(&_cipher[i], encrypted_block.data(), &output[i]);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_cfb(const vector& _plain)
+        {
+            const unique_ptr output = encrypt_cfb(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_cfb(const vector& _cipher)
+        {
+            const unique_ptr output = decrypt_cfb(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_cfb(const string& _plain)
+        {
+            const unique_ptr output = encrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_cfb(const string& _cipher)
+        {
+            const unique_ptr output = decrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
         }
 
     private:
-        void encrypt_block(const std::uint8_t* _plain, std::uint8_t* _output, const std::uint8_t* _round_keys) const noexcept
+        void check_key() const
         {
-            std::array<std::array<std::uint8_t, m_bytes>, 4> state;
+            if (!has_key())
+            {
+                throw std::bad_exception();
+            }
+        }
+
+        void check_iv() const
+        {
+            if (!has_iv())
+            {
+                throw std::bad_exception();
+            }
+        }
+
+        void encrypt_block(const std::uint8_t* _plain, std::uint8_t* _output, const std::uint8_t* _expkey) const noexcept
+        {
+            std::array<std::array<std::uint8_t, BYTES>, 4> state;
 
             auto sub_bytes = [&state]() noexcept -> void
             {
                 for (std::uint32_t i = 0; i < 4; ++i) {
-                    for (std::uint32_t j = 0, t; j < m_bytes; ++j) {
+                    for (std::uint32_t j = 0, t; j < BYTES; ++j) {
                         t = state[i][j];
                         state[i][j] = detail::sbox[t / 16][t % 16];
                     }
                 }
+            };
+
+            auto mix_columns = [&state]() noexcept -> void
+            {
+                std::array<std::array<std::uint8_t, BYTES>, 4> temp_state{ };
+
+                for (std::uint32_t i = 0; i < 4; ++i) {
+                    for (std::uint32_t k = 0; k < 4; ++k) {
+                        for (std::uint32_t j = 0; j < 4; ++j)
+                        {
+                            if (detail::CMDS[i][k] == 1) {
+                                temp_state[i][j] ^= state[k][j];
+                            }
+                            else {
+                                temp_state[i][j] ^= detail::GF_MUL_TABLE[detail::CMDS[i][k]][state[k][j]];
+                            }
+                        }
+                    }
+                }
+
+                std::memcpy(state.data(), temp_state.data(), 4 * BYTES);
             };
 
             auto shift_rows = [this, &state]() noexcept -> void
@@ -748,64 +1172,43 @@ namespace AES
                 shift_row(state, 3, 3);
             };
 
-            auto mix_columns = [&state]() noexcept -> void
-            {
-                std::array<std::array<std::uint8_t, m_bytes>, 4> temp_state{ };
-
-                for (std::uint32_t i = 0; i < 4; ++i) {
-                    for (std::uint32_t k = 0; k < 4; ++k) {
-                        for (std::uint32_t j = 0; j < 4; ++j)
-                        {
-                            if (detail::CMDS[i][k] == 1) {
-                                temp_state[i][j] ^= state[k][j];
-                            }
-                            else {
-                                temp_state[i][j] ^= detail::GF_MUL_TABLE[detail::CMDS[i][k]][state[k][j]];
-                            }
-                        }
-                    }
-                }
-
-                std::memcpy(state.data(), temp_state.data(), 4 * m_bytes);
-            };
-
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::uint32_t j = 0; j < BYTES; ++j)
                 {
                     state[i][j] = _plain[i + 4 * j];
                 }
             }
 
-            add_round_key(state, _round_keys);
+            add_round_key(state, _expkey);
 
             for (std::size_t round = 1; round <= m_rounds - 1; ++round)
             {
                 sub_bytes();
                 shift_rows();
                 mix_columns();
-                add_round_key(state, _round_keys + round * 4 * m_bytes);
+                add_round_key(state, _expkey + round * 4 * BYTES);
             }
 
             sub_bytes();
             shift_rows();
-            add_round_key(state, _round_keys + m_rounds * 4 * m_bytes);
+            add_round_key(state, _expkey + m_rounds * 4 * BYTES);
 
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::uint32_t j = 0; j < BYTES; ++j)
                 {
                     _output[i + 4 * j] = state[i][j];
                 }
             }
         }
 
-        void decrypt_block(const std::uint8_t* _cipher, std::uint8_t* _output, const std::uint8_t* _round_keys) const noexcept
+        void decrypt_block(const std::uint8_t* _cipher, std::uint8_t* _output, const std::uint8_t* _expkey) const noexcept
         {
-            std::array<std::array<std::uint8_t, m_bytes>, 4> state;
+            std::array<std::array<std::uint8_t, BYTES>, 4> state;
 
             auto inv_sub_bytes = [&state]() noexcept -> void
             {
                 for (std::uint32_t i = 0; i < 4; ++i) {
-                    for (std::uint32_t j = 0, t; j < m_bytes; ++j)
+                    for (std::uint32_t j = 0, t; j < BYTES; ++j)
                     {
                         t = state[i][j];
                         state[i][j] = detail::inv_sbox[t / 16][t % 16];
@@ -815,7 +1218,7 @@ namespace AES
 
             auto inv_mix_columns = [&state]() noexcept -> void
             {
-                std::array<std::array<std::uint8_t, m_bytes>, 4> temp_state{ };
+                std::array<std::array<std::uint8_t, BYTES>, 4> temp_state{ };
 
                 for (std::uint32_t i = 0; i < 4; ++i) {
                     for (std::uint32_t k = 0; k < 4; ++k) {
@@ -826,75 +1229,53 @@ namespace AES
                     }
                 }
 
-                std::memcpy(state.data(), temp_state.data(), 4 * m_bytes);
+                std::memcpy(state.data(), temp_state.data(), 4 * BYTES);
             };
 
             auto inv_shift_rows = [this, &state]() noexcept -> void
             {
-                shift_row(state, 1, m_bytes - 1);
-                shift_row(state, 2, m_bytes - 2);
-                shift_row(state, 3, m_bytes - 3);
+                shift_row(state, 1, BYTES - 1);
+                shift_row(state, 2, BYTES - 2);
+                shift_row(state, 3, BYTES - 3);
             };
 
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::size_t j = 0; j < BYTES; ++j)
                 {
                     state[i][j] = _cipher[i + 4 * j];
                 }
             }
 
-            add_round_key(state, _round_keys + m_rounds * 4 * m_bytes);
+            add_round_key(state, _expkey + m_rounds * 4 * BYTES);
 
             for (std::size_t round = m_rounds - 1; round >= 1; --round)
             {
                 inv_sub_bytes();
                 inv_shift_rows();
-                add_round_key(state, _round_keys + round * 4 * m_bytes);
+                add_round_key(state, _expkey + round * 4 * BYTES);
                 inv_mix_columns();
             }
 
             inv_sub_bytes();
             inv_shift_rows();
-            add_round_key(state, _round_keys);
+            add_round_key(state, _expkey);
 
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::size_t j = 0; j < BYTES; ++j)
                 {
                     _output[i + 4 * j] = state[i][j];
                 }
             }
         }
 
-        void add_round_key(std::array<std::array<std::uint8_t, m_bytes>, 4>& _state, const std::uint8_t* _key) const noexcept
-        {
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
-                {
-                    _state[i][j] = _state[i][j] ^ _key[i + 4 * j];
-                }
-            }
-        };
-
-        void shift_row(std::array<std::array<std::uint8_t, m_bytes>, 4>& _state, const std::uint32_t _i, const std::uint32_t _n) const noexcept
-        {
-            std::array<std::uint8_t, m_bytes> tmp{ };
-
-            for (std::size_t i = 0; i < tmp.size(); ++i)
-            {
-                tmp[i] = _state[_i][(i + _n) % m_bytes];
-            }
-
-            std::memcpy(_state[_i].data(), tmp.data(), m_bytes);
-        }
-        
-        void key_expansion(const std::uint8_t* _key, std::uint8_t* _dst) const noexcept
+        void expand_key(const std::uint8_t* _key, std::uint8_t* _dst) const noexcept
         {
             std::array<std::uint8_t, 4> rcon{ };
             std::array<std::uint8_t, 4> temp;
 
             auto rot_word = [&temp]() noexcept -> void
             {
-                const auto c = temp[0];
+                const std::uint8_t c = temp[0];
                 temp[0] = temp[1];
                 temp[1] = temp[2];
                 temp[2] = temp[3];
@@ -930,27 +1311,24 @@ namespace AES
                 rcon[1] = rcon[2] = rcon[3] = 0;
             };
 
-            for (std::uint32_t i = 0; i < 4 * m_columns; ++i)
-            {
-                _dst[i] = _key[i];
-            }
+            std::memcpy(_dst, _key, 4 * m_columns);
 
-            const std::size_t end = static_cast<std::size_t>(4) * m_bytes * (m_rounds + 1);
-
-            for (std::size_t i = 4 * m_columns; i < end; i += 4)
+            for (std::size_t i = 4 * m_columns; i < 4 * BYTES * (m_rounds + 1); i += 4)
             {
                 temp[0] = _dst[i - 4 + 0];
                 temp[1] = _dst[i - 4 + 1];
                 temp[2] = _dst[i - 4 + 2];
                 temp[3] = _dst[i - 4 + 3];
 
-                if (i / 4 % m_columns == 0) {
+                if (i / 4 % m_columns == 0)
+                {
                     rot_word();
                     sub_word();
                     r_con(i / (m_columns * 4));
                     xor_words();
                 }
-                else if (m_columns > 6 && i / 4 % m_columns == 4) {
+                else if (m_columns > 6 && i / 4 % m_columns == 4)
+                {
                     sub_word();
                 }
 
@@ -961,65 +1339,107 @@ namespace AES
             }
         }
 
-        void check_key(const std::size_t _size) const
+        static void check_data(const std::size_t _size)
         {
-            if (_size != m_keysize)
+            if (!_size || _size % BLOCK_BYTES != 0)
             {
-                throw("keysize is invalid");
+                data_length_error();
             }
         }
 
-        static void check_iv(const std::size_t _size)
+        static void increment_counter(std::uint8_t* _counter) noexcept
         {
-            if (_size != m_ivsize)
+            std::uint32_t* p = reinterpret_cast<std::uint32_t*>(_counter);
+            std::uint32_t carry = 1;
+            for (std::int64_t i = BLOCK_BYTES / 4 - 1; i >= 0; --i)
             {
-                throw("ivsize is invalid");
+                const std::size_t sum = static_cast<std::size_t>(p[i]) + carry;
+                p[i] = static_cast<std::uint32_t>(sum);
+                carry = static_cast<std::uint32_t>(sum >> 32);
             }
         }
 
-        static void check_length(const std::size_t _length)
+        static void add_round_key(std::array<std::array<std::uint8_t, BYTES>, 4>& _state, const std::uint8_t* _key) noexcept
         {
-            if (_length % m_block_bytes_len != 0) {
-                throw std::length_error("Plaintext length must be divisible by m_block_bytes_len");
+            for (std::uint32_t i = 0; i < 4; ++i) {
+                for (std::uint32_t j = 0; j < BYTES; ++j)
+                {
+                    _state[i][j] = _state[i][j] ^ _key[i + 4 * j];
+                }
+            }
+        };
+
+        static void shift_row(std::array<std::array<std::uint8_t, BYTES>, 4>& _state, const std::uint32_t _i, const std::uint32_t _n) noexcept
+        {
+            std::array<std::uint8_t, BYTES> tmp;
+
+            for (std::size_t i = 0; i < BYTES; ++i)
+            {
+                tmp[i] = _state[_i][(i + _n) % BYTES];
+            }
+
+            std::memcpy(_state[_i].data(), tmp.data(), BYTES);
+        }
+
+        static constexpr void xor_blocks(const std::uint8_t* _block1, const std::uint8_t* _block2, std::uint8_t* _dest_block) noexcept
+        {
+            for (std::uint32_t i = 0; i < BLOCK_BYTES; ++i)
+            {
+                _dest_block[i] = _block1[i] ^ _block2[i];
             }
         }
 
-        static void xor_blocks(const std::uint8_t* _block1, const std::uint8_t* _block2, std::uint8_t* _block_dst) noexcept
+        static __declspec(noreturn) void key_length_error()
         {
-            for (std::uint32_t i = 0; i < m_block_bytes_len; ++i) {
-                _block_dst[i] = _block1[i] ^ _block2[i];
-            }
+            throw std::length_error("key length must be KEY_SIZE");
+        }
+
+        static __declspec(noreturn) void iv_length_error()
+        {
+            throw std::length_error("IV size is not IV_SIZE or not set");
+        }
+
+        static __declspec(noreturn) void data_length_error()
+        {
+            throw std::length_error("length of data must be divisible by BLOCK_BYTES and should`t be 0");
         }
     };
+}
 
+namespace AES
+{
     template <AES_KEY MODE = AES_256>
     class AES_T
     {
     protected:
-        static constexpr std::size_t m_bytes = 4;
-        static constexpr std::size_t m_block_bytes_len = 4 * m_bytes;
-        static constexpr std::size_t m_ivsize = m_block_bytes_len;
-        static constexpr std::size_t m_keysize = MODE / 4;
-        static constexpr std::size_t m_columns = MODE / 32;
-        static constexpr std::size_t m_rounds = m_columns + 6;
-        static constexpr std::size_t m_exp_key_size = 4 * m_bytes * (m_rounds + 1);
+        static constexpr std::size_t BYTES = 4;
+        static constexpr std::size_t BLOCK_BYTES = 4 * BYTES;
+        static constexpr std::size_t IV_SIZE = BLOCK_BYTES;
+        static constexpr std::size_t KEY_SIZE = MODE / 4;
+        static constexpr std::size_t COLUMNS = MODE / 32;
+        static constexpr std::size_t ROUNDS = COLUMNS + 6;
+        static constexpr std::size_t EXP_KEY_SIZE = 4 * BYTES * (ROUNDS + 1);
 
-    private:
-        // mutable because of std::move
-        mutable std::vector<std::uint8_t> m_key{ };
-        mutable std::vector<std::uint8_t> m_iv{ };
+        unique_ptr m_expkey = std::make_unique<std::uint8_t[]>(EXP_KEY_SIZE);
+        unique_ptr m_iv = std::make_unique<std::uint8_t[]>(IV_SIZE);
 
     public:
         constexpr AES_T() = default;
 
-        void set_key(const std::vector<std::uint8_t>& _key)
+        constexpr void set_key(const vector& _key)
         {
-            check_key(_key.size());
-            m_key = _key;
-            m_key.resize(
-                static_cast<std::size_t>(4) * m_bytes * (m_rounds + 1)
-            );
-            key_expansion(_key.data(), m_key.data());
+            if (_key.size() != KEY_SIZE) {
+                key_length_error();
+            }
+            expand_key(_key.data(), m_expkey.get());
+        }
+
+        constexpr void set_iv(const vector& _iv)
+        {
+            if (_iv.size() != IV_SIZE) {
+                key_length_error();
+            }
+            std::memcpy(m_iv.get(), _iv.data(), IV_SIZE);
         }
 
         void set_random_key()
@@ -1027,57 +1447,69 @@ namespace AES
             set_key(random_key(MODE));
         }
 
-        void set_iv(const std::vector<std::uint8_t>& _iv)
-        {
-            check_iv(_iv.size());
-            m_iv = _iv;
-        }
-
         void set_random_iv()
         {
             set_iv(random_iv());
         }
 
-        void set_keysize(const AES_KEY _key_len)
+        _NODISCARD constexpr std::uint8_t* expanded_key() noexcept
         {
-            if (_key_len != MODE)
-            {
-                m_key.clear();
+            return m_expkey.get();
+        }
+
+        _NODISCARD constexpr const std::uint8_t* expanded_key() const noexcept
+        {
+            return m_expkey.get();
+        }
+
+        _NODISCARD constexpr bool has_key() const noexcept
+        {
+            return (*m_expkey.get() != '\0');
+        }
+
+        _NODISCARD constexpr std::uint8_t* iv() noexcept
+        {
+            return m_iv.get();
+        }
+
+        _NODISCARD constexpr const std::uint8_t* iv() const noexcept
+        {
+            return m_iv.get();
+        }
+
+        _NODISCARD constexpr bool has_iv() const noexcept
+        {
+            return (*m_iv.get() != '\0');
+        }
+
+        _NODISCARD constexpr operator bool() const noexcept
+        {
+            return (has_key() && has_iv());
+        }
+
+        _NODISCARD constexpr AES_T& operator=(const AES_T& _aes) noexcept
+        {
+            if (_aes) {
+                std::memcpy(m_expkey.get(), _aes.m_expkey.get(), EXP_KEY_SIZE);
+                std::memcpy(m_iv.get(), _aes.m_iv.get(), IV_SIZE);
             }
-        }
-
-        _NODISCARD const std::vector<std::uint8_t>& key() const noexcept
-        {
-            return m_key;
-        }
-
-        _NODISCARD bool has_key() const noexcept
-        {
-            return (m_key.size() == m_keysize);
-        }
-
-        _NODISCARD const std::vector<std::uint8_t>& iv() const noexcept
-        {
-            return m_iv;
-        }
-
-        _NODISCARD bool has_iv() const noexcept
-        {
-            return (m_iv.size() == m_ivsize);
+            return *this;
         }
 
     public:
         // --- ECB ---
-        _NODISCARD static std::unique_ptr<std::uint8_t[]> encrypt_ecb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::size_t _in_length)
+
+        // Raw
+        _NODISCARD static unique_ptr encrypt_ecb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::size_t _plain_size)
         {
-            check_length(_in_length);
+            check_data(_plain_size);
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_exp_key_size> expkey;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
 
-            key_expansion(_key, expkey.data());
+            expand_key(_key, expkey.data());
 
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
             {
                 encrypt_block(&_plain[i], &output[i], expkey.data());
             }
@@ -1085,16 +1517,16 @@ namespace AES
             return std::move(output);
         }
 
-        _NODISCARD static std::unique_ptr<std::uint8_t[]> decrypt_ecb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::size_t _in_length)
+        _NODISCARD static unique_ptr decrypt_ecb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::size_t _cipher_size)
         {
-            check_length(_in_length);
+            check_data(_cipher_size);
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_exp_key_size> expkey;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
 
-            key_expansion(_key, expkey.data());
+            expand_key(_key, expkey.data());
 
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
             {
                 decrypt_block(&_cipher[i], &output[i], expkey.data());
             }
@@ -1102,306 +1534,718 @@ namespace AES
             return std::move(output);
         }
 
-        _NODISCARD static std::vector<std::uint8_t> encrypt_ecb(const std::vector<std::uint8_t>& _plain, const std::vector<std::uint8_t>& _key)
+        // Vector
+        _NODISCARD static vector encrypt_ecb(const vector& _plain, const vector& _key)
         {
-            const auto output = encrypt_ecb(_plain.data(), _key.data(), _plain.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
+            const unique_ptr output = encrypt_ecb(
+                _plain.data(),
+                _key.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
         }
 
-        _NODISCARD static std::vector<std::uint8_t> decrypt_ecb(const std::vector<std::uint8_t>& _cipher, const std::vector<std::uint8_t>& _key)
+        _NODISCARD static vector decrypt_ecb(const vector& _cipher, const vector& _key)
         {
-            const auto output = decrypt_ecb(_cipher.data(), _key.data(), _cipher.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());;
+            const unique_ptr output = decrypt_ecb(
+                _cipher.data(), 
+                _key.data(), 
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
         }
 
-        // Encrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> encrypt_ecb(const std::vector<std::uint8_t>& _plain) const
+        // String
+        _NODISCARD static string encrypt_ecb(const string& _plain, const string& _key)
         {
-            check_length(_plain.size());
+            const unique_ptr output = encrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                _plain.size());
+            return string(output.get(), output.get() + _plain.size());
+        }
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<uint8_t[]>(_plain.size());
+        _NODISCARD static string decrypt_ecb(const string& _cipher, const string& _key)
+        {
+            const unique_ptr output = decrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
 
-            for (std::size_t i = 0; i < _plain.size(); i += m_block_bytes_len)
+        // -- Internal --
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_ecb(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+
+            unique_ptr output = std::make_unique<uint8_t[]>(_plain_size);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
             {
-                encrypt_block(&_plain[i], &output[i], m_key.data());
+                encrypt_block(&_plain[i], &output[i], m_expkey.get());
             }
 
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
+            return std::move(output);
         }
 
-        // Decrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> decrypt_ecb(const std::vector<std::uint8_t>& _cipher) const
+        _NODISCARD unique_ptr decrypt_ecb(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
         {
-            check_length(_cipher.size());
+            check_data(_cipher_size);
+            check_key();
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<uint8_t[]>(_cipher.size());
+            unique_ptr output = std::make_unique<uint8_t[]>(_cipher_size);
 
-            for (std::size_t i = 0; i < _cipher.size(); i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
             {
-                decrypt_block(&_cipher[i], &output[i], m_key.data());
+                decrypt_block(&_cipher[i], &output[i], m_expkey.get());
             }
 
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_ecb(const vector& _plain) const
+        {
+            const unique_ptr output = encrypt_ecb(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_ecb(const vector& _cipher) const
+        {
+            const unique_ptr output = decrypt_ecb(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_ecb(const string& _plain) const
+        {
+            const unique_ptr output = encrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_ecb(const string& _cipher) const
+        {
+            const unique_ptr output = decrypt_ecb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
         }
 
         // --- CBC ---
-        _NODISCARD static std::unique_ptr<std::uint8_t[]> encrypt_cbc(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length)
+
+        // Raw
+        _NODISCARD static unique_ptr encrypt_cbc(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _plain_size)
         {
-            check_length(_in_length);
+            check_data(_plain_size);
 
-            std::array<std::uint8_t, m_block_bytes_len> block;
+            std::array<std::uint8_t, BLOCK_BYTES> block;
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
-            std::array<std::uint8_t, m_exp_key_size> expkey;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
 
-            key_expansion(_key, expkey.data());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
 
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
             {
                 xor_blocks(block.data(), &_plain[i], block.data());
                 encrypt_block(block.data(), &output[i], expkey.data());
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
             }
 
             return std::move(output);
         }
 
-        _NODISCARD static std::unique_ptr<std::uint8_t[]> decrypt_cbc(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length)
+        _NODISCARD static unique_ptr decrypt_cbc(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _cipher_size)
         {
-            check_length(_in_length);
+            check_data(_cipher_size);
 
-            std::array<std::uint8_t, m_block_bytes_len> block;
+            std::array<std::uint8_t, BLOCK_BYTES> block;
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<uint8_t[]>(_in_length);
-            std::unique_ptr<std::uint8_t[]> expkey = std::make_unique<uint8_t[]>(
-                static_cast<std::size_t>(4) * m_bytes * (m_rounds + 1)
-            );
+            unique_ptr output = std::make_unique<uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
 
-            key_expansion(_key, expkey.get());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
 
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
             {
-                decrypt_block(&_cipher[i], &output[i], expkey.get());
+                decrypt_block(&_cipher[i], &output[i], expkey.data());
                 xor_blocks(block.data(), &output[i], &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
             }
 
             return std::move(output);
         }
 
-        _NODISCARD static std::vector<std::uint8_t> encrypt_cbc(const std::vector<std::uint8_t>& _plain, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv)
+        // Vector
+        _NODISCARD static vector encrypt_cbc(const vector& _plain, const vector& _key, const vector& _iv)
         {
-            const auto output = encrypt_cbc(_plain.data(), _key.data(), _iv.data(), _plain.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
+            const unique_ptr output = encrypt_cbc(
+                _plain.data(),
+                _key.data(),
+                _iv.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
         }
 
-        _NODISCARD static std::vector<std::uint8_t> decrypt_cbc(const std::vector<std::uint8_t>& _enc, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv)
+        _NODISCARD static vector decrypt_cbc(const vector& _cipher, const vector& _key, const vector& _iv)
         {
-            const auto output = decrypt_cbc(_enc.data(), _key.data(), _iv.data(), _enc.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _enc.size());
+            const unique_ptr output = decrypt_cbc(
+                _cipher.data(),
+                _key.data(),
+                _iv.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
         }
 
-        // Encrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> encrypt_cbc(const std::vector<std::uint8_t>& _plain) const
+        // String
+        _NODISCARD static string encrypt_cbc(const string& _plain, const string& _key, const string& _iv)
         {
-            check_length(_plain.size());
+            const unique_ptr output = encrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
 
-            std::array<std::uint8_t, m_block_bytes_len> block;
+        _NODISCARD static vector decrypt_cbc(const string& _cipher, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = decrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_plain.size());
+        // -- Internal --
 
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
+        // Raw
+        _NODISCARD unique_ptr encrypt_cbc(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+            check_iv();
 
-            for (std::size_t i = 0; i < _plain.size(); i += m_block_bytes_len)
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
             {
                 xor_blocks(block.data(), &_plain[i], block.data());
-                encrypt_block(block.data(), &output[i], m_key.data());
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
+                encrypt_block(block.data(), &output[i], m_expkey.get());
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
             }
 
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
+            return std::move(output);
         }
 
-        // Decrypt using the set KEY and IV
-        _NODISCARD std::vector<std::uint8_t> decrypt_cbc(const std::vector<std::uint8_t>& _cipher) const
+        _NODISCARD unique_ptr decrypt_cbc(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
         {
-            check_length(_cipher.size());
+            check_data(_cipher_size);
+            check_key();
+            check_iv();
 
-            std::array<std::uint8_t, m_block_bytes_len> block;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_cipher.size());
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
 
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _cipher.size(); i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
             {
-                decrypt_block(&_cipher[i], &output[i], m_key.data());
+                decrypt_block(&_cipher[i], &output[i], m_expkey.get());
                 xor_blocks(block.data(), &output[i], &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
             }
 
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_cbc(const vector& _plain)
+        {
+            const unique_ptr output = encrypt_cbc(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_cbc(const vector& _cipher)
+        {
+            const unique_ptr output = decrypt_cbc(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_cbc(const string& _plain)
+        {
+            const unique_ptr output = encrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_cbc(const string& _cipher)
+        {
+            const unique_ptr output = decrypt_cbc(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
+
+        // --- CTR ---
+
+        // Raw
+        _NODISCARD static unique_ptr encrypt_ctr(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _plain_size)
+        {
+            check_data(_plain_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(counter.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), expkey.data());
+                xor_blocks(block.data(), &_plain[i], &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD static unique_ptr decrypt_ctr(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _cipher_size)
+        {
+            check_data(_cipher_size);
+
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
+
+            expand_key(_key, expkey.data());
+            std::memcpy(counter.data(), _iv, BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), expkey.data());
+                xor_blocks(&_cipher[i], block.data(), &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD static vector encrypt_ctr(const vector& _plain, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = encrypt_ctr(
+                _plain.data(),
+                _key.data(),
+                _iv.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD static vector decrypt_ctr(const vector& _cipher, const vector& _key, const vector& _iv)
+        {
+            const unique_ptr output = decrypt_ctr(
+                _cipher.data(),
+                _key.data(),
+                _iv.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD static string encrypt_ctr(const string& _plain, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = encrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD static vector decrypt_ctr(const string& _cipher, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = decrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // -- Internal --
+
+        // Raw
+        _NODISCARD unique_ptr encrypt_ctr(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            std::memcpy(counter.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), m_expkey.get());
+                xor_blocks(block.data(), &_plain[i], &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        _NODISCARD unique_ptr decrypt_ctr(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
+        {
+            check_data(_cipher_size);
+            check_key();
+            check_iv();
+
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> counter;
+            std::array<std::uint8_t, BLOCK_BYTES> block;
+
+            std::memcpy(counter.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
+            {
+                encrypt_block(counter.data(), block.data(), m_expkey.get());
+                xor_blocks(&_cipher[i], block.data(), &output[i]);
+                increment_counter(counter.data());
+            }
+
+            return std::move(output);
+        }
+
+        // Vector
+        _NODISCARD vector encrypt_ctr(const vector& _plain)
+        {
+            const unique_ptr output = encrypt_ctr(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD vector decrypt_ctr(const vector& _cipher)
+        {
+            const unique_ptr output = decrypt_ctr(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
+        }
+
+        // String
+        _NODISCARD string encrypt_ctr(const string& _plain)
+        {
+            const unique_ptr output = encrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_ctr(const string& _cipher)
+        {
+            const unique_ptr output = decrypt_ctr(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
         }
 
         // --- CFB ---
-        _NODISCARD static std::unique_ptr<std::uint8_t[]> encrypt_cfb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length) noexcept
+
+        // Raw
+        _NODISCARD static unique_ptr encrypt_cfb(const std::uint8_t* _plain, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _plain_size)
         {
-            check_length(_in_length);
+            check_data(_plain_size);
 
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
-            std::array<std::uint8_t, m_exp_key_size> expkey;
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
 
-            key_expansion(_key, expkey.data());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
 
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
             {
                 encrypt_block(block.data(), encrypted_block.data(), expkey.data());
                 xor_blocks(&_plain[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
             }
 
             return std::move(output);
         }
 
-        _NODISCARD static std::unique_ptr<std::uint8_t[]> decrypt_cfb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _in_length) noexcept
+        _NODISCARD static unique_ptr decrypt_cfb(const std::uint8_t* _cipher, const std::uint8_t* _key, const std::uint8_t* _iv, const std::size_t _cipher_size)
         {
-            check_length(_in_length);
+            check_data(_cipher_size);
 
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
-            std::array<std::uint8_t, m_exp_key_size> expkey;
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_in_length);
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, EXP_KEY_SIZE> expkey;
 
-            key_expansion(_key, expkey.data());
-            std::memcpy(block.data(), _iv, m_block_bytes_len);
+            expand_key(_key, expkey.data());
+            std::memcpy(block.data(), _iv, BLOCK_BYTES);
 
-            for (std::size_t i = 0; i < _in_length; i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
             {
                 encrypt_block(block.data(), encrypted_block.data(), expkey.data());
                 xor_blocks(&_cipher[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
             }
 
             return std::move(output);
         }
 
-        _NODISCARD static std::vector<std::uint8_t> encrypt_cfb(const std::vector<std::uint8_t>& _plain, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv) noexcept
+        // Vector
+        _NODISCARD static vector encrypt_cfb(const vector& _plain, const vector& _key, const vector& _iv)
         {
-            const auto output = encrypt_cfb(_plain.data(), _key.data(), _iv.data(), _plain.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
+            const unique_ptr output = encrypt_cfb(
+                _plain.data(),
+                _key.data(),
+                _iv.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
         }
 
-        _NODISCARD static std::vector<std::uint8_t> decrypt_cfb(const std::vector<std::uint8_t>& _cipher, const std::vector<std::uint8_t>& _key, const std::vector<std::uint8_t>& _iv) noexcept
+        _NODISCARD static vector decrypt_cfb(const vector& _cipher, const vector& _key, const vector& _iv)
         {
-            const auto output = decrypt_cfb(_cipher.data(), _key.data(), _iv.data(), _cipher.size());
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
+            const unique_ptr output = decrypt_cfb(
+                _cipher.data(),
+                _key.data(),
+                _iv.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
         }
 
-        _NODISCARD std::vector<std::uint8_t> encrypt_cfb(const std::vector<std::uint8_t>& _plain) const
+        // String
+        _NODISCARD static string encrypt_cfb(const string& _plain, const string& _key, const string& _iv)
         {
-            check_length(_plain.size());
+            const unique_ptr output = encrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
 
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
+        _NODISCARD static string decrypt_cfb(const string& _cipher, const string& _key, const string& _iv)
+        {
+            const unique_ptr output = decrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                reinterpret_cast<const std::uint8_t*>(_key.data()),
+                reinterpret_cast<const std::uint8_t*>(_iv.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
+        }
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_plain.size());
+        // -- Internal --
 
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
+        // Raw
+        _NODISCARD unique_ptr encrypt_cfb(const std::uint8_t* _plain, const std::size_t _plain_size) const
+        {
+            check_data(_plain_size);
+            check_key();
+            check_iv();
 
-            for (std::size_t i = 0; i < _plain.size(); i += m_block_bytes_len)
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_plain_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
+
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
+
+            for (std::size_t i = 0; i < _plain_size; i += BLOCK_BYTES)
             {
-                encrypt_block(block.data(), encrypted_block.data(), m_key.data());
+                encrypt_block(block.data(), encrypted_block.data(), m_expkey.get());
                 xor_blocks(&_plain[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &output[i], m_block_bytes_len);
+                std::memcpy(block.data(), &output[i], BLOCK_BYTES);
             }
 
-            return std::vector<std::uint8_t>(output.get(), output.get() + _plain.size());
+            return std::move(output);
         }
 
-        _NODISCARD std::vector<std::uint8_t> decrypt_cfb(const std::vector<std::uint8_t>& _cipher)
+        _NODISCARD unique_ptr decrypt_cfb(const std::uint8_t* _cipher, const std::size_t _cipher_size) const
         {
-            check_length(_cipher.size());
+            check_data(_cipher_size);
+            check_key();
+            check_iv();
 
-            std::array<std::uint8_t, m_block_bytes_len> block, encrypted_block;
+            unique_ptr output = std::make_unique<std::uint8_t[]>(_cipher_size);
+            std::array<std::uint8_t, BLOCK_BYTES> block, encrypted_block;
 
-            std::unique_ptr<std::uint8_t[]> output = std::make_unique<std::uint8_t[]>(_cipher.size());
+            std::memcpy(block.data(), m_iv.get(), BLOCK_BYTES);
 
-            std::memcpy(block.data(), m_iv.data(), m_block_bytes_len);
-
-            for (std::size_t i = 0; i < _cipher.size(); i += m_block_bytes_len)
+            for (std::size_t i = 0; i < _cipher_size; i += BLOCK_BYTES)
             {
-                encrypt_block(block.data(), encrypted_block.data(), m_key.data());
+                encrypt_block(block.data(), encrypted_block.data(), m_expkey.get());
                 xor_blocks(&_cipher[i], encrypted_block.data(), &output[i]);
-                std::memcpy(block.data(), &_cipher[i], m_block_bytes_len);
+                std::memcpy(block.data(), &_cipher[i], BLOCK_BYTES);
             }
 
-            return std::vector<std::uint8_t>(output.get(), output.get() + _cipher.size());
+            return std::move(output);
         }
 
-    public:
-        _NODISCARD operator bool() const noexcept
+        // Vector
+        _NODISCARD vector encrypt_cfb(const vector& _plain)
         {
-            return (has_key() && has_iv());
+            const unique_ptr output = encrypt_cfb(
+                _plain.data(),
+                _plain.size()
+            );
+            return vector(output.get(), output.get() + _plain.size());
         }
 
-        _NODISCARD AES_T& operator=(const AES_T& _aes) noexcept
+        _NODISCARD vector decrypt_cfb(const vector& _cipher)
         {
-            if (_aes) {
-                m_key = _aes.m_key;
-                m_iv = _aes.m_iv;
-            }
-            return *this;
+            const unique_ptr output = decrypt_cfb(
+                _cipher.data(),
+                _cipher.size()
+            );
+            return vector(output.get(), output.get() + _cipher.size());
         }
 
-        friend std::ostream& operator<<(std::ostream& _out, const AES_T<MODE>& _aes) noexcept
+        // String
+        _NODISCARD string encrypt_cfb(const string& _plain)
         {
-            _out << "AES " << _aes.m_keysize * 4 << ":\n";
-            _out << "KEYLEN: " << _aes.m_keysize << '\n';
-            _out << "IV LEN: " << 16 << "\n\n";
-            if (_aes.has_key())
-            {
-                _out << "----KEY----\n{ ";
-                for (std::size_t i = 0; i != _aes.key().size() - 1; ++i)
-                {
-                    _out << static_cast<std::int32_t>(_aes.key()[i]) << ", ";
-                }
-                _out << static_cast<std::int32_t>(_aes.key().back()) << " }\n\n";
-            }
-            else {
-                _out << "NO KEY SET\n\n";
-            }
-            if (_aes.has_iv())
-            {
-                _out << "----IV----\n{ ";
-                for (std::size_t i = 0; i != _aes.iv().size() - 1; ++i)
-                {
-                    _out << static_cast<std::int32_t>(_aes.iv()[i]) << ", ";
-                }
-                _out << static_cast<std::int32_t>(_aes.iv().back()) << " }\n\n";
-            }
-            else {
-                _out << "NO IV SET\n\n";
-            }
-            return _out;
+            const unique_ptr output = encrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_plain.data()),
+                _plain.size()
+            );
+            return string(output.get(), output.get() + _plain.size());
+        }
+
+        _NODISCARD string decrypt_cfb(const string& _cipher)
+        {
+            const unique_ptr output = decrypt_cfb(
+                reinterpret_cast<const std::uint8_t*>(_cipher.data()),
+                _cipher.size()
+            );
+            return string(output.get(), output.get() + _cipher.size());
         }
 
     private:
-        static constexpr void encrypt_block(const std::uint8_t* _plain, std::uint8_t* _output, const std::uint8_t* _round_keys) noexcept
+        constexpr void check_key() const
         {
-            std::array<std::array<std::uint8_t, m_bytes>, 4> state;
+            if (!has_key())
+            {
+                throw std::bad_exception();
+            }
+        }
+
+        constexpr void check_iv() const
+        {
+            if (!has_iv())
+            {
+                throw std::bad_exception();
+            }
+        }
+
+        static constexpr void check_data(const std::size_t _size)
+        {
+            if (!_size || _size % BLOCK_BYTES != 0)
+            {
+                data_length_error();
+            }
+        }
+
+        static constexpr void increment_counter(std::uint8_t* _counter)
+        {
+            std::uint32_t* p = reinterpret_cast<std::uint32_t*>(_counter);
+            std::uint32_t carry = 1;
+            for (std::int64_t i = BLOCK_BYTES / 4 - 1; i >= 0; --i)
+            {
+                const std::size_t sum = static_cast<std::size_t>(p[i]) + carry;
+                p[i] = static_cast<std::uint32_t>(sum);
+                carry = static_cast<std::uint32_t>(sum >> 32);
+            }
+        }
+
+        static constexpr void encrypt_block(const std::uint8_t* _plain, std::uint8_t* _output, const std::uint8_t* _expkey) noexcept
+        {
+            std::array<std::array<std::uint8_t, BYTES>, 4> state;
 
             auto sub_bytes = [&state]() noexcept -> void
             {
                 for (std::uint32_t i = 0; i < 4; ++i) {
-                    for (std::uint32_t j = 0, t; j < m_bytes; ++j) {
+                    for (std::uint32_t j = 0, t; j < BYTES; ++j) {
                         t = state[i][j];
                         state[i][j] = detail::sbox[t / 16][t % 16];
                     }
                 }
+            };
+
+            auto mix_columns = [&state]() noexcept -> void
+            {
+                std::array<std::array<std::uint8_t, BYTES>, 4> temp_state{ };
+
+                for (std::uint32_t i = 0; i < 4; ++i) {
+                    for (std::uint32_t k = 0; k < 4; ++k) {
+                        for (std::uint32_t j = 0; j < 4; ++j)
+                        {
+                            if (detail::CMDS[i][k] == 1) {
+                                temp_state[i][j] ^= state[k][j];
+                            }
+                            else {
+                                temp_state[i][j] ^= detail::GF_MUL_TABLE[detail::CMDS[i][k]][state[k][j]];
+                            }
+                        }
+                    }
+                }
+
+                std::memcpy(state.data(), temp_state.data(), 4 * BYTES);
             };
 
             auto shift_rows = [&state]() noexcept -> void
@@ -1411,64 +2255,43 @@ namespace AES
                 shift_row(state, 3, 3);
             };
 
-            auto mix_columns = [&state]() noexcept -> void
-            {
-                std::array<std::array<std::uint8_t, m_bytes>, 4> temp_state{ };
-
-                for (std::uint32_t i = 0; i < 4; ++i) {
-                    for (std::uint32_t k = 0; k < 4; ++k) {
-                        for (std::uint32_t j = 0; j < 4; ++j)
-                        {
-                            if (detail::CMDS[i][k] == 1) {
-                                temp_state[i][j] ^= state[k][j];
-                            }
-                            else {
-                                temp_state[i][j] ^= detail::GF_MUL_TABLE[detail::CMDS[i][k]][state[k][j]];
-                            }
-                        }
-                    }
-                }
-
-                std::memcpy(state.data(), temp_state.data(), 4 * m_bytes);
-            };
-
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::uint32_t j = 0; j < BYTES; ++j)
                 {
                     state[i][j] = _plain[i + 4 * j];
                 }
             }
 
-            add_round_key(state, _round_keys);
+            add_round_key(state, _expkey);
 
-            for (std::size_t round = 1; round <= m_rounds - 1; ++round)
+            for (std::size_t round = 1; round <= ROUNDS - 1; ++round)
             {
                 sub_bytes();
                 shift_rows();
                 mix_columns();
-                add_round_key(state, _round_keys + round * 4 * m_bytes);
+                add_round_key(state, _expkey + round * 4 * BYTES);
             }
 
             sub_bytes();
             shift_rows();
-            add_round_key(state, _round_keys + m_rounds * 4 * m_bytes);
+            add_round_key(state, _expkey + ROUNDS * 4 * BYTES);
 
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::uint32_t j = 0; j < BYTES; ++j)
                 {
                     _output[i + 4 * j] = state[i][j];
                 }
             }
         }
 
-        static constexpr void decrypt_block(const std::uint8_t* _cipher, std::uint8_t* _output, const std::uint8_t* _round_keys) noexcept
+        static constexpr void decrypt_block(const std::uint8_t* _cipher, std::uint8_t* _output, const std::uint8_t* _expkey) noexcept
         {
-            std::array<std::array<std::uint8_t, m_bytes>, 4> state;
+            std::array<std::array<std::uint8_t, BYTES>, 4> state;
 
             auto inv_sub_bytes = [&state]() noexcept -> void
             {
                 for (std::uint32_t i = 0; i < 4; ++i) {
-                    for (std::uint32_t j = 0, t; j < m_bytes; ++j)
+                    for (std::uint32_t j = 0, t; j < BYTES; ++j)
                     {
                         t = state[i][j];
                         state[i][j] = detail::inv_sbox[t / 16][t % 16];
@@ -1478,7 +2301,7 @@ namespace AES
 
             auto inv_mix_columns = [&state]() noexcept -> void
             {
-                std::array<std::array<std::uint8_t, m_bytes>, 4> temp_state{ };
+                std::array<std::array<std::uint8_t, BYTES>, 4> temp_state{ };
 
                 for (std::uint32_t i = 0; i < 4; ++i) {
                     for (std::uint32_t k = 0; k < 4; ++k) {
@@ -1489,75 +2312,75 @@ namespace AES
                     }
                 }
 
-                std::memcpy(state.data(), temp_state.data(), 4 * m_bytes);
+                std::memcpy(state.data(), temp_state.data(), 4 * BYTES);
             };
 
             auto inv_shift_rows = [&state]() noexcept -> void
             {
-                shift_row(state, 1, m_bytes - 1);
-                shift_row(state, 2, m_bytes - 2);
-                shift_row(state, 3, m_bytes - 3);
+                shift_row(state, 1, BYTES - 1);
+                shift_row(state, 2, BYTES - 2);
+                shift_row(state, 3, BYTES - 3);
             };
 
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::size_t j = 0; j < BYTES; ++j)
                 {
                     state[i][j] = _cipher[i + 4 * j];
                 }
             }
 
-            add_round_key(state, _round_keys + m_rounds * 4 * m_bytes);
+            add_round_key(state, _expkey + ROUNDS * 4 * BYTES);
 
-            for (std::size_t round = m_rounds - 1; round >= 1; --round)
+            for (std::size_t round = ROUNDS - 1; round >= 1; --round)
             {
                 inv_sub_bytes();
                 inv_shift_rows();
-                add_round_key(state, _round_keys + round * 4 * m_bytes);
+                add_round_key(state, _expkey + round * 4 * BYTES);
                 inv_mix_columns();
             }
 
             inv_sub_bytes();
             inv_shift_rows();
-            add_round_key(state, _round_keys);
+            add_round_key(state, _expkey);
 
-            for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+            for (std::size_t i = 0; i < 4; ++i) {
+                for (std::size_t j = 0; j < BYTES; ++j)
                 {
                     _output[i + 4 * j] = state[i][j];
                 }
             }
         }
 
-        static constexpr void add_round_key(std::array<std::array<std::uint8_t, m_bytes>, 4>& _state, const std::uint8_t* _key) noexcept
+        static constexpr void add_round_key(std::array<std::array<std::uint8_t, BYTES>, 4>& _state, const std::uint8_t* _key) noexcept
         {
             for (std::uint32_t i = 0; i < 4; ++i) {
-                for (std::uint32_t j = 0; j < m_bytes; ++j)
+                for (std::uint32_t j = 0; j < BYTES; ++j)
                 {
                     _state[i][j] = _state[i][j] ^ _key[i + 4 * j];
                 }
             }
         };
 
-        static constexpr void shift_row(std::array<std::array<std::uint8_t, m_bytes>, 4>& _state, const std::uint32_t _i, const std::uint32_t _n) noexcept
+        static constexpr void shift_row(std::array<std::array<std::uint8_t, BYTES>, 4>& _state, const std::uint32_t _i, const std::uint32_t _n) noexcept
         {
-            std::array<std::uint8_t, m_bytes> tmp;
+            std::array<std::uint8_t, BYTES> tmp;
 
-            for (std::size_t i = 0; i < tmp.size(); ++i)
+            for (std::size_t i = 0; i < BYTES; ++i)
             {
-                tmp[i] = _state[_i][(i + _n) % m_bytes];
+                tmp[i] = _state[_i][(i + _n) % BYTES];
             }
 
-            std::memcpy(_state[_i].data(), tmp.data(), m_bytes);
+            std::memcpy(_state[_i].data(), tmp.data(), BYTES);
         }
 
-        static constexpr void key_expansion(const std::uint8_t* _key, std::uint8_t* _dst) noexcept
+        static constexpr void expand_key(const std::uint8_t* _key, std::uint8_t* _dst) noexcept
         {
             std::array<std::uint8_t, 4> rcon{ };
             std::array<std::uint8_t, 4> temp;
 
             auto rot_word = [&temp]() noexcept -> void
             {
-                const auto c = temp[0];
+                const std::uint8_t c = temp[0];
                 temp[0] = temp[1];
                 temp[1] = temp[2];
                 temp[2] = temp[3];
@@ -1593,65 +2416,55 @@ namespace AES
                 rcon[1] = rcon[2] = rcon[3] = 0;
             };
 
-            for (std::uint32_t i = 0; i < 4 * m_columns; ++i) 
-            {
-                _dst[i] = _key[i];
-            }
+            std::memcpy(_dst, _key, 4 * COLUMNS);
 
-            for (std::size_t i = 4 * m_columns; i < m_exp_key_size; i += 4)
+            for (std::size_t i = 4 * COLUMNS; i < EXP_KEY_SIZE; i += 4)
             {
                 temp[0] = _dst[i - 4 + 0];
                 temp[1] = _dst[i - 4 + 1];
                 temp[2] = _dst[i - 4 + 2];
                 temp[3] = _dst[i - 4 + 3];
 
-                if (i / 4 % m_columns == 0) {
+                if (i / 4 % COLUMNS == 0)
+                {
                     rot_word();
                     sub_word();
-                    r_con(i / (m_columns * 4));
+                    r_con(i / (COLUMNS * 4));
                     xor_words();
                 }
-                else if (m_columns > 6 && i / 4 % m_columns == 4) {
+                else if (COLUMNS > 6 && i / 4 % COLUMNS == 4)
+                {
                     sub_word();
                 }
 
-                _dst[i + 0] = _dst[i - 4 * m_columns] ^ temp[0];
-                _dst[i + 1] = _dst[i + 1 - 4 * m_columns] ^ temp[1];
-                _dst[i + 2] = _dst[i + 2 - 4 * m_columns] ^ temp[2];
-                _dst[i + 3] = _dst[i + 3 - 4 * m_columns] ^ temp[3];
+                _dst[i + 0] = _dst[i - 4 * COLUMNS] ^ temp[0];
+                _dst[i + 1] = _dst[i + 1 - 4 * COLUMNS] ^ temp[1];
+                _dst[i + 2] = _dst[i + 2 - 4 * COLUMNS] ^ temp[2];
+                _dst[i + 3] = _dst[i + 3 - 4 * COLUMNS] ^ temp[3];
             }
         }
 
-        static constexpr void check_key(const std::size_t _size)
+        static constexpr void xor_blocks(const std::uint8_t* _block1, const std::uint8_t* _block2, std::uint8_t* _dest_block) noexcept
         {
-            if (_size != m_keysize)
+            for (std::uint32_t i = 0; i < BLOCK_BYTES; ++i)
             {
-                throw("keysize is invalid");
+                _dest_block[i] = _block1[i] ^ _block2[i];
             }
         }
 
-        static constexpr void check_iv(const std::size_t _size)
+        static constexpr __declspec(noreturn) void key_length_error()
         {
-            if (_size != m_ivsize)
-            {
-                throw("ivsize is invalid");
-            }
+            throw std::length_error("key length must be KEY_SIZE");
         }
 
-        static constexpr void check_length(const std::size_t _length)
+        static constexpr __declspec(noreturn) void iv_length_error()
         {
-            if (_length % m_block_bytes_len != 0)
-            {
-                throw std::length_error("Plaintext length must be divisible by m_block_bytes_len");
-            }
+            throw std::length_error("IV size is not IV_SIZE or not set");
         }
 
-        static constexpr void xor_blocks(const std::uint8_t* _block1, const std::uint8_t* _block2, std::uint8_t* _block_dst) noexcept
+        static constexpr __declspec(noreturn) void data_length_error()
         {
-            for (std::uint32_t i = 0; i < m_block_bytes_len; ++i)
-            {
-                _block_dst[i] = _block1[i] ^ _block2[i];
-            }
+            throw std::length_error("length of data must be divisible by BLOCK_BYTES and should`t be 0");
         }
     };
 }
