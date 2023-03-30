@@ -263,7 +263,7 @@ namespace AES
     _NODISCARD std::vector<std::uint8_t> random_key(const AES_KEY _len) noexcept
     {
         std::uniform_int_distribution<int32_t> dist(0, 255);
-        std::vector<std::uint8_t> key(_len / 4, 0);
+        std::vector<std::uint8_t> key(_len / 8, 0);
 
         for (auto& pos : key) {
             std::random_device rd;
@@ -334,7 +334,7 @@ namespace AES
         static constexpr std::size_t MAX_EXP_KEY_SIZE = 4 * BYTES * (14 + 1); // 4 * bytes * (max columns + 1)
 
         AES_KEY m_mode = AES_256;
-        std::uint8_t m_keysize = m_mode / 4;
+        std::uint8_t m_keysize = m_mode / 8;
         std::uint8_t m_columns = m_mode / 32;
         std::uint8_t m_rounds = m_columns + 6;
 
@@ -1415,7 +1415,7 @@ namespace AES
         static constexpr std::size_t BYTES = 4;
         static constexpr std::size_t BLOCK_BYTES = 4 * BYTES;
         static constexpr std::size_t IV_SIZE = BLOCK_BYTES;
-        static constexpr std::size_t KEY_SIZE = MODE / 4;
+        static constexpr std::size_t KEY_SIZE = MODE / 8;
         static constexpr std::size_t COLUMNS = MODE / 32;
         static constexpr std::size_t ROUNDS = COLUMNS + 6;
         static constexpr std::size_t EXP_KEY_SIZE = 4 * BYTES * (ROUNDS + 1);
