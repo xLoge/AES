@@ -9,6 +9,7 @@
 #include <array>   // std::array
 
 #define _NAMESPACE_ AES
+#define _FORCEINLINE_ __forceinline
 
 namespace _NAMESPACE_
 {
@@ -190,6 +191,8 @@ namespace _NAMESPACE_
 		// * No random read access
 		void encrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 			alignas(BLOCK_SIZE) state_t block;
@@ -209,6 +212,8 @@ namespace _NAMESPACE_
 		// * No random read access
 		void decrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 			alignas(BLOCK_SIZE) block_t enc_data;
@@ -230,6 +235,8 @@ namespace _NAMESPACE_
 		// * No random read access
 		void encrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
@@ -253,6 +260,8 @@ namespace _NAMESPACE_
 		// * No random read access
 		void decrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 			alignas(BLOCK_SIZE) block_t block;
@@ -275,6 +284,8 @@ namespace _NAMESPACE_
 		// * Random read access
 		void encrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
@@ -290,6 +301,8 @@ namespace _NAMESPACE_
 		// * Random read access
 		void decrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
@@ -305,6 +318,8 @@ namespace _NAMESPACE_
 		// * Random read access
 		void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
@@ -325,6 +340,8 @@ namespace _NAMESPACE_
 		// * Random read access
 		void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
@@ -347,6 +364,8 @@ namespace _NAMESPACE_
 		// * Random read access
 		void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const noexcept
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
@@ -376,6 +395,8 @@ namespace _NAMESPACE_
 		// * No random read access
 		void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
 		{
+			check_data(_datasize);
+
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
@@ -399,7 +420,9 @@ namespace _NAMESPACE_
 		}
 
 	private:
-		static constexpr void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
+#define FUNC_ARGS static constexpr _FORCEINLINE_
+
+		FUNC_ARGS void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
 		{
 			block_t counter_block{ };
 			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
@@ -409,12 +432,11 @@ namespace _NAMESPACE_
 			xor_blocks(_nonce, counter_block, _combined);
 		}
 
-		static constexpr void encrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		FUNC_ARGS void encrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
 		{
-			const uint32_t rounds = _keysize / 4 + 6;
-
 			add_round_key(_state, _round_key);
 
+			const uint32_t rounds = _keysize / 4 + 6;
 			for (uint32_t round = 1; round != rounds; ++round)
 			{
 				sub_bytes(_state);
@@ -428,7 +450,7 @@ namespace _NAMESPACE_
 			add_round_key(_state, &_round_key[rounds * (Nb * 4)]);
 		}
 
-		static constexpr void mix_columns(state_t& _state) noexcept
+		FUNC_ARGS void mix_columns(state_t& _state) noexcept
 		{
 			using namespace detail;
 
@@ -455,7 +477,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		static constexpr void shift_rows(state_t& _state) noexcept
+		FUNC_ARGS void shift_rows(state_t& _state) noexcept
 		{
 			/*
 			* shift rows
@@ -496,7 +518,7 @@ namespace _NAMESPACE_
 			_state[0][3] = tmp;				// 65 -> tmp (68)
 		}
 
-		static constexpr void sub_bytes(state_t& _state) noexcept
+		FUNC_ARGS void sub_bytes(state_t& _state) noexcept
 		{
 			using namespace detail;
 
@@ -509,13 +531,13 @@ namespace _NAMESPACE_
 			}
 		}
 
-		static constexpr void decrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		FUNC_ARGS void decrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
 		{
 			const uint32_t rounds = _keysize / 4 + 6;
 
 			add_round_key(_state, &_round_key[rounds * (Nb * 4)]);
 
-			for (uint32_t round = rounds - 1; round > 0; --round)
+			for (uint32_t round = rounds - 1; round != 0; --round)
 			{
 				inv_shift_rows(_state);
 				inv_sub_bytes(_state);
@@ -528,7 +550,7 @@ namespace _NAMESPACE_
 			add_round_key(_state, _round_key);
 		}
 
-		static constexpr void inv_mix_columns(state_t& _state)
+		FUNC_ARGS void inv_mix_columns(state_t& _state) noexcept
 		{
 			using namespace detail;
 			
@@ -551,7 +573,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		static constexpr void inv_shift_rows(state_t& _state)
+		FUNC_ARGS void inv_shift_rows(state_t& _state) noexcept
 		{
 			/*
 			* reversed shift rows
@@ -592,7 +614,7 @@ namespace _NAMESPACE_
 			_state[3][3] = tmp;				// 67 -> tmp (68)
 		}
 
-		static constexpr void inv_sub_bytes(state_t& _state)
+		FUNC_ARGS void inv_sub_bytes(state_t& _state) noexcept
 		{
 			using namespace detail;
 
@@ -605,7 +627,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		static constexpr void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
+		FUNC_ARGS void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
 		{
 			uint32_t x = 0, y = 0;
 			for (; x != 4; ++x) {
@@ -616,25 +638,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		static constexpr void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
-		{
-			uint32_t x = 0, y = 0;
-			for (; x != 4; ++x) {
-				for (y = 0; y != 4; ++y)
-				{
-					_state[x][y] ^= _block[(x * 4) + y];
-				}
-			}
-		}
-
-		static constexpr void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
-		{
-			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
-				_dest[x] = _block1[x] ^ _block2[x];
-			}
-		}
-
-		static constexpr void key_expansion(const uint8_t* _key, uint8_t* _out_round_key, const uint32_t _keysize) noexcept
+		FUNC_ARGS void key_expansion(const uint8_t* _key, uint8_t* _out_round_key, const uint32_t _keysize) noexcept
 		{
 			using namespace detail;
 
@@ -684,11 +688,37 @@ namespace _NAMESPACE_
 				_out_round_key[i * 4 + 3] = _out_round_key[(i - columns) * 4 + 3] ^ tmp[3];
 			}
 		}
+		
+		FUNC_ARGS void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
+		{
+			uint32_t x = 0, y = 0;
+			for (; x != 4; ++x) {
+				for (y = 0; y != 4; ++y)
+				{
+					_state[x][y] ^= _block[(x * 4) + y];
+				}
+			}
+		}
+
+		FUNC_ARGS void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
+		{
+			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
+				_dest[x] = _block1[x] ^ _block2[x];
+			}
+		}
+
+		FUNC_ARGS void check_data(const size_t _size)
+		{
+			if (_size % BLOCK_SIZE != 0) {
+				throw("Inavlid _datasize specified.");
+			}
+		}
+
+#undef FUNC_ARGS
 	};
 }
 
-#ifdef _NAMESPACE_
 #undef _NAMESPACE_
-#endif
+#undef _FORCEINLINE_
 
 #endif
