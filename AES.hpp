@@ -7,6 +7,7 @@
 #include <stdalign.h> // alignas
 #include <cstring> // std::memcpy
 #include <array>   // std::array
+#include <execution>
 
 #define _NAMESPACE_ AES
 #define _FORCEINLINE_ __forceinline
@@ -127,7 +128,7 @@ namespace _NAMESPACE_
 				*/
 				for (int32_t input = 0; input != 256; ++input)
 				{
-					for (int32_t constant = 0x09, index = 0x00; index != 0x04; constant += 0x02, index += 0x01)
+					for (int32_t constant = 9, index = 0; index != 4; constant += 2, index += 1)
 					{
 						if (constant == 15) {
 							constant = 14;
@@ -187,9 +188,7 @@ namespace _NAMESPACE_
 		}
 
 		// Cipher block chaining mode, encrypt
-		// * Can`t be multithreaded
-		// * No random read access
-		void encrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		void encrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const 
 		{
 			check_data(_datasize);
 
@@ -208,9 +207,7 @@ namespace _NAMESPACE_
 		}
 		
 		// Cipher block chaining mode, decrypt
-		// * Can be multithreaded
-		// * No random read access
-		void decrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		void decrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const 
 		{
 			check_data(_datasize);
 
@@ -231,9 +228,7 @@ namespace _NAMESPACE_
 		}
 
 		// Propagating cipher block chaining mode, encrypt
-		// * Can`t be multithreaded
-		// * No random read access
-		void encrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		void encrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const 
 		{
 			check_data(_datasize);
 
@@ -256,9 +251,7 @@ namespace _NAMESPACE_
 		}
 
 		// Propagating cipher block chaining mode, decrypt
-		// * Can`t be multithreaded
-		// * No random read access
-		void decrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		void decrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const 
 		{
 			check_data(_datasize);
 
@@ -280,9 +273,7 @@ namespace _NAMESPACE_
 		}
 
 		// Electronic codebook mode, encrypt
-		// * Can be multithreaded
-		// * Random read access
-		void encrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
+		void encrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const
 		{
 			check_data(_datasize);
 
@@ -297,9 +288,7 @@ namespace _NAMESPACE_
 		}
 
 		// Electronic codebook mode, decrypt
-		// * Can be multithreaded
-		// * Random read access
-		void decrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
+		void decrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const
 		{
 			check_data(_datasize);
 
@@ -314,9 +303,7 @@ namespace _NAMESPACE_
 		}
 
 		// Cipher feedback mode, encrypt
-		// * Can`t be multithreaded
-		// * Random read access
-		void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const 
 		{
 			check_data(_datasize);
 
@@ -336,9 +323,7 @@ namespace _NAMESPACE_
 		}
 
 		// Cipher feedback mode, decrypt
-		// * Can be multithreaded
-		// * Random read access
-		void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const 
 		{
 			check_data(_datasize);
 
@@ -360,9 +345,7 @@ namespace _NAMESPACE_
 		}
 
 		// Counter mode, encrypt and decrypt
-		// * Can be multithreaded
-		// * Random read access
-		void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const noexcept
+		void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const 
 		{
 			check_data(_datasize);
 
@@ -383,16 +366,12 @@ namespace _NAMESPACE_
 		}
 
 		// Counter mode, decrypt and encrypt 
-		// * Can be multithreaded
-		// * Random read access
-		void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const noexcept
+		void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const 
 		{
 			encrypt_ctr(_data, _datasize, _key, _nonce);
 		}
 
 		// Output feedback mode, encrypt and decrypt
-		// * Can`t be multithreaded
-		// * No random read access
 		void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
 		{
 			check_data(_datasize);
@@ -412,27 +391,23 @@ namespace _NAMESPACE_
 		}
 
 		// Output feedback mode, decrypt and encrypt
-		// * Can`t be multithreaded
-		// * No random read access
 		void decrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
 		{
 			encrypt_ofb(_data, _datasize, _key, _iv);
 		}
 
 	private:
-#define FUNC_ARGS static constexpr _FORCEINLINE_
-
-		FUNC_ARGS void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
+		static void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
 		{
-			block_t counter_block{ };
+			block_t counter_block;
 			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
-				counter_block[BLOCK_SIZE - 1 - i] = static_cast<uint8_t>(_counter & 0xFF);
+				counter_block[(BLOCK_SIZE - 1) - i] = static_cast<uint8_t>(_counter & 0xFF);
 				_counter >>= 8;
 			}
 			xor_blocks(_nonce, counter_block, _combined);
 		}
 
-		FUNC_ARGS void encrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		static void encrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
 		{
 			add_round_key(_state, _round_key);
 
@@ -450,11 +425,11 @@ namespace _NAMESPACE_
 			add_round_key(_state, &_round_key[rounds * (Nb * 4)]);
 		}
 
-		FUNC_ARGS void mix_columns(state_t& _state) noexcept
+		static _FORCEINLINE_ void mix_columns(state_t& _state) noexcept
 		{
 			using namespace detail;
 
-			uint8_t a = 0, b = 0, c = 0, d = 0, tmp = 0, h = 0;
+			uint8_t a, b, c, d, tmp;
 
 			for (uint32_t i = 0; i != 4; ++i) {
 				a = _state[i][0];
@@ -463,21 +438,14 @@ namespace _NAMESPACE_
 				d = _state[i][3];
 
 				tmp = a ^ b ^ c ^ d;
-				h = gmul2[a ^ b];
-				_state[i][0] ^= h ^ tmp;
-
-				h = gmul2[b ^ c];
-				_state[i][1] ^= h ^ tmp;
-
-				h = gmul2[c ^ d];
-				_state[i][2] ^= h ^ tmp;
-
-				h = gmul2[d ^ a];
-				_state[i][3] ^= h ^ tmp;
+				_state[i][0] ^= gmul2[a ^ b] ^ tmp;
+				_state[i][1] ^= gmul2[b ^ c] ^ tmp;
+				_state[i][2] ^= gmul2[c ^ d] ^ tmp;
+				_state[i][3] ^= gmul2[d ^ a] ^ tmp;
 			}
 		}
 
-		FUNC_ARGS void shift_rows(state_t& _state) noexcept
+		static _FORCEINLINE_ void shift_rows(state_t& _state) noexcept
 		{
 			/*
 			* shift rows
@@ -518,11 +486,11 @@ namespace _NAMESPACE_
 			_state[0][3] = tmp;				// 65 -> tmp (68)
 		}
 
-		FUNC_ARGS void sub_bytes(state_t& _state) noexcept
+		static _FORCEINLINE_ void sub_bytes(state_t& _state) noexcept
 		{
 			using namespace detail;
 
-			uint32_t x = 0, y = 0;
+			uint32_t x, y;
 			for (x = 0; x != 4; ++x) {
 				for (y = 0; y != 4; ++y)
 				{
@@ -531,7 +499,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		FUNC_ARGS void decrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		static void decrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
 		{
 			const uint32_t rounds = _keysize / 4 + 6;
 
@@ -550,16 +518,17 @@ namespace _NAMESPACE_
 			add_round_key(_state, _round_key);
 		}
 
-		FUNC_ARGS void inv_mix_columns(state_t& _state) noexcept
+		static _FORCEINLINE_ void inv_mix_columns(state_t& _state) noexcept
 		{
 			using namespace detail;
 			
-			constexpr int32_t x09 = 0;
-			constexpr int32_t x0B = 1;
-			constexpr int32_t x0D = 2;
-			constexpr int32_t x0E = 3;
+			constexpr uint8_t x09 = 0;
+			constexpr uint8_t x0B = 1;
+			constexpr uint8_t x0D = 2;
+			constexpr uint8_t x0E = 3;
 
-			uint8_t a = 0, b = 0, c = 0, d = 0;
+			uint8_t a, b, c, d;
+
 			for (uint32_t i = 0; i != 4; ++i) {
 				a = _state[i][0];
 				b = _state[i][1];
@@ -573,7 +542,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		FUNC_ARGS void inv_shift_rows(state_t& _state) noexcept
+		static _FORCEINLINE_ void inv_shift_rows(state_t& _state) noexcept
 		{
 			/*
 			* reversed shift rows
@@ -614,12 +583,12 @@ namespace _NAMESPACE_
 			_state[3][3] = tmp;				// 67 -> tmp (68)
 		}
 
-		FUNC_ARGS void inv_sub_bytes(state_t& _state) noexcept
+		static _FORCEINLINE_ void inv_sub_bytes(state_t& _state) noexcept
 		{
 			using namespace detail;
 
-			uint32_t x = 0, y = 0;
-			for (; x != 4; ++x) {
+			uint32_t x, y;
+			for (x = 0; x != 4; ++x) {
 				for (y = 0; y != 4; ++y)
 				{
 					_state[x][y] = inv_sbox[_state[x][y]];
@@ -627,18 +596,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		FUNC_ARGS void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
-		{
-			uint32_t x = 0, y = 0;
-			for (; x != 4; ++x) {
-				for (y = 0; y != 4; ++y)
-				{
-					_state[x][y] ^= _round_key[(x * 4) + y];
-				}
-			}
-		}
-
-		FUNC_ARGS void key_expansion(const uint8_t* _key, uint8_t* _out_round_key, const uint32_t _keysize) noexcept
+		static void key_expansion(const uint8_t* _key, uint8_t* _out_round_key, const uint32_t _keysize) noexcept
 		{
 			using namespace detail;
 
@@ -653,7 +611,7 @@ namespace _NAMESPACE_
 				_out_round_key[(i * 4) + 3] = _key[(i * 4) + 3];
 			}
 
-			std::array<uint8_t, 4> tmp{ };
+			std::array<uint8_t, 4> tmp;
 			for (uint32_t i = columns; i != end; ++i)
 			{
 				tmp[0] = _out_round_key[(i - 1) * 4 + 0];
@@ -689,7 +647,18 @@ namespace _NAMESPACE_
 			}
 		}
 		
-		FUNC_ARGS void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
+		static constexpr void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
+		{
+			uint32_t x = 0, y = 0;
+			for (; x != 4; ++x) {
+				for (y = 0; y != 4; ++y)
+				{
+					_state[x][y] ^= _round_key[(x * 4) + y];
+				}
+			}
+		}
+
+		static constexpr void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
 		{
 			uint32_t x = 0, y = 0;
 			for (; x != 4; ++x) {
@@ -700,14 +669,14 @@ namespace _NAMESPACE_
 			}
 		}
 
-		FUNC_ARGS void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
+		static constexpr void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
 		{
 			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
 				_dest[x] = _block1[x] ^ _block2[x];
 			}
 		}
 
-		FUNC_ARGS void check_data(const size_t _size)
+		static constexpr void check_data(const size_t _size)
 		{
 			if (_size % BLOCK_SIZE != 0) {
 				throw("Inavlid _datasize specified.");
