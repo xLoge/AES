@@ -187,6 +187,7 @@ namespace _NAMESPACE_
 
 		// Cipher block chaining mode, encrypt
 		// * Can`t be multithreaded
+		// * No random read access
 		void encrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
 			expkey_t expkey;
@@ -205,26 +206,73 @@ namespace _NAMESPACE_
 		
 		// Cipher block chaining mode, decrypt
 		// * Can be multithreaded
+		// * No random read access
 		void decrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
+			alignas(BLOCK_SIZE) block_t enc_data;
 			alignas(BLOCK_SIZE) block_t block;
-			alignas(BLOCK_SIZE) block_t iv;
-			std::memcpy(iv, _iv, BLOCK_SIZE);
+			std::memcpy(block, _iv, BLOCK_SIZE);
 
 			const size_t end = _datasize / BLOCK_SIZE;
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
-				std::memcpy(block, _data, BLOCK_SIZE);
+				std::memcpy(enc_data, _data, BLOCK_SIZE);
 				decrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
-				xor_blocks(*reinterpret_cast<state_t*>(_data), iv);
-				std::memcpy(iv, block, BLOCK_SIZE);
+				xor_blocks(*reinterpret_cast<state_t*>(_data), block);
+				std::memcpy(block, enc_data, BLOCK_SIZE);
+			}
+		}
+
+		// Propagating cipher block chaining mode, encrypt
+		// * Can`t be multithreaded
+		// * No random read access
+		void encrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+
+			alignas(BLOCK_SIZE) state_t block;
+			alignas(BLOCK_SIZE) block_t last_plain;
+			std::memcpy(block, _iv, BLOCK_SIZE);
+
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			{
+				std::memcpy(last_plain, _data, BLOCK_SIZE);
+				xor_blocks(block, _data);
+				encrypt_block(block, expkey, m_keysize);
+				std::memcpy(_data, block, BLOCK_SIZE);
+				xor_blocks(block, last_plain);
+			}
+		}
+
+		// Propagating cipher block chaining mode, decrypt
+		// * Can`t be multithreaded
+		// * No random read access
+		void decrypt_pcbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+			alignas(BLOCK_SIZE) block_t block;
+			alignas(BLOCK_SIZE) block_t last_enc;
+			std::memcpy(block, _iv, BLOCK_SIZE);
+
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			{
+				std::memcpy(last_enc, _data, BLOCK_SIZE);
+				decrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
+				xor_blocks(_data, block, _data);
+				xor_blocks(last_enc, _data, last_enc);
+				std::memcpy(block, last_enc, BLOCK_SIZE);
 			}
 		}
 
 		// Electronic codebook mode, encrypt
 		// * Can be multithreaded
+		// * Random read access
 		void encrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
 		{
 			expkey_t expkey;
@@ -239,6 +287,7 @@ namespace _NAMESPACE_
 
 		// Electronic codebook mode, decrypt
 		// * Can be multithreaded
+		// * Random read access
 		void decrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
 		{
 			expkey_t expkey;
@@ -253,6 +302,7 @@ namespace _NAMESPACE_
 
 		// Cipher feedback mode, encrypt
 		// * Can`t be multithreaded
+		// * Random read access
 		void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
 			expkey_t expkey;
@@ -272,6 +322,7 @@ namespace _NAMESPACE_
 
 		// Cipher feedback mode, decrypt
 		// * Can be multithreaded
+		// * Random read access
 		void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
 			expkey_t expkey;
@@ -293,6 +344,7 @@ namespace _NAMESPACE_
 
 		// Counter mode, encrypt and decrypt
 		// * Can be multithreaded
+		// * Random read access
 		void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const noexcept
 		{
 			expkey_t expkey;
@@ -313,6 +365,7 @@ namespace _NAMESPACE_
 
 		// Counter mode, decrypt and encrypt 
 		// * Can be multithreaded
+		// * Random read access
 		void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const noexcept
 		{
 			encrypt_ctr(_data, _datasize, _key, _nonce);
@@ -320,6 +373,7 @@ namespace _NAMESPACE_
 
 		// Output feedback mode, encrypt and decrypt
 		// * Can`t be multithreaded
+		// * No random read access
 		void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
 		{
 			expkey_t expkey;
@@ -338,6 +392,7 @@ namespace _NAMESPACE_
 
 		// Output feedback mode, decrypt and encrypt
 		// * Can`t be multithreaded
+		// * No random read access
 		void decrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
 		{
 			encrypt_ofb(_data, _datasize, _key, _iv);
