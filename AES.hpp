@@ -7,7 +7,6 @@
 #include <stdalign.h> // alignas
 #include <cstring> // std::memcpy
 #include <array>   // std::array
-#include <execution>
 
 #define _NAMESPACE_ AES
 #define _FORCEINLINE_ __forceinline
