@@ -4,10 +4,6 @@
 * The class should have no errors, but if you find one please open a issue :)
 * C++14 or above
 
-## Modes
+### Opeartion Modes:
 
-* ECB
-* CBC
-* CTR
-* CFB
-* OFB
+- ECB, CBC, CTR, CFB, OFB
