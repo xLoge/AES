@@ -8,7 +8,9 @@
 #include <cstring> // std::memcpy
 #include <array>   // std::array
 
-namespace AES
+#define _NAMESPACE_ AES
+
+namespace _NAMESPACE_
 {
 	namespace detail
 	{
@@ -60,7 +62,7 @@ namespace AES
 		inline
 #endif
 		constexpr std::array<uint8_t, 11> rcon = {
-			0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20,
+			0x8D, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20,
 			0x40, 0x80, 0x1B, 0x36
 		};
 
@@ -143,10 +145,9 @@ namespace AES
 			}()
 		);
 	}
-
 }
 
-namespace AES
+namespace _NAMESPACE_
 {
 	enum AES_KEY_LEN
 	{
@@ -156,7 +157,7 @@ namespace AES
 	};
 }
 
-namespace AES
+namespace _NAMESPACE_
 {
 	class AES
 	{
@@ -184,11 +185,13 @@ namespace AES
 
 		}
 
+		// Cipher block chaining mode, encrypt
+		// * Can`t be multithreaded
 		void encrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
-			expkey_t expkey{ };
+			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
-			alignas(BLOCK_SIZE) state_t state{ };
+			alignas(BLOCK_SIZE) state_t state;
 			std::memcpy(state, _iv, BLOCK_SIZE);
 
 			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
@@ -199,13 +202,15 @@ namespace AES
 				_data += BLOCK_SIZE;
 			}
 		}
-
+		
+		// Cipher block chaining mode, decrypt
+		// * Can be multithreaded
 		void decrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
 		{
-			expkey_t expkey{ };
+			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
-			alignas(BLOCK_SIZE) block_t block { };
-			alignas(BLOCK_SIZE) block_t iv { };
+			alignas(BLOCK_SIZE) block_t block;
+			alignas(BLOCK_SIZE) block_t iv;
 			std::memcpy(iv, _iv, BLOCK_SIZE);
 			
 			for (size_t i = 0; i != _datasize / BLOCK_SIZE; ++i)
@@ -218,7 +223,137 @@ namespace AES
 			}
 		}
 
+		// Electronic codebook mode, encrypt
+		// * Can be multithreaded
+		void encrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+
+			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			{
+				encrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
+				_data += BLOCK_SIZE;
+			}
+		}
+
+		// Electronic codebook mode, decrypt
+		// * Can be multithreaded
+		void decrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const noexcept
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+
+			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			{
+				decrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
+				_data += BLOCK_SIZE;
+			}
+		}
+
+		// Cipher feedback mode, encrypt
+		// * Can`t be multithreaded
+		void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+
+			alignas(BLOCK_SIZE) block_t block;
+			std::memcpy(block, _iv, BLOCK_SIZE);
+
+			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			{
+				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
+				xor_blocks(_data, block, _data);
+				std::memcpy(block, _data, BLOCK_SIZE);
+				_data += BLOCK_SIZE;
+			}
+		}
+
+		// Cipher feedback mode, decrypt
+		// * Can be multithreaded
+		void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+
+			alignas(BLOCK_SIZE) block_t block;
+			alignas(BLOCK_SIZE) block_t enc_block;
+			std::memcpy(block, _iv, BLOCK_SIZE);
+
+			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			{
+				std::memcpy(enc_block, block, BLOCK_SIZE);
+				encrypt_block(*reinterpret_cast<state_t*>(enc_block), expkey, m_keysize);
+				std::memcpy(block, _data, BLOCK_SIZE);
+				xor_blocks(_data, enc_block, _data);
+				_data += BLOCK_SIZE;
+			}
+		}
+
+		// Counter mode, encrypt and decrypt
+		// * Can be multithreaded
+		void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const noexcept
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+
+			alignas(BLOCK_SIZE) block_t counter_block;
+			size_t counter = 0;
+
+			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			{
+				combine_nonce_counter(counter_block, _nonce, counter);
+				counter += 1;
+				encrypt_block(*reinterpret_cast<state_t*>(counter_block), expkey, m_keysize);
+				xor_blocks(_data, counter_block, _data);
+				_data += BLOCK_SIZE;
+			}
+		}
+
+		// Counter mode, decrypt and encrypt 
+		// * Can be multithreaded
+		void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const noexcept
+		{
+			encrypt_ctr(_data, _datasize, _key, _nonce);
+		}
+
+		// Output feedback mode, encrypt and decrypt
+		// * Can`t be multithreaded
+		void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
+		{
+			expkey_t expkey;
+			key_expansion(_key, expkey, m_keysize);
+
+			alignas(BLOCK_SIZE) block_t block;
+			std::memcpy(block, _iv, BLOCK_SIZE);
+
+			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			{
+				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
+				xor_blocks(_data, block, _data);
+				_data += BLOCK_SIZE;
+			}
+		}
+
+		// Output feedback mode, decrypt and encrypt
+		// * Can`t be multithreaded
+		void decrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
+		{
+			encrypt_ofb(_data, _datasize, _key, _iv);
+		}
+
 	private:
+		static constexpr void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
+		{
+			block_t counter_block{ };
+			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
+				counter_block[BLOCK_SIZE - 1 - i] = static_cast<uint8_t>(_counter & 0xFF);
+				_counter >>= 8;
+			}
+			xor_blocks(_nonce, counter_block, _combined);
+		}
+
 		static constexpr void encrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
 		{
 			const uint32_t rounds = _keysize / 4 + 6;
@@ -341,14 +476,14 @@ namespace AES
 		static constexpr void inv_mix_columns(state_t& _state)
 		{
 			using namespace detail;
+			
 			constexpr int32_t x09 = 0;
 			constexpr int32_t x0B = 1;
 			constexpr int32_t x0D = 2;
 			constexpr int32_t x0E = 3;
 
 			uint8_t a = 0, b = 0, c = 0, d = 0;
-			for (uint32_t i = 0; i != 4; ++i)
-			{
+			for (uint32_t i = 0; i != 4; ++i) {
 				a = _state[i][0];
 				b = _state[i][1];
 				c = _state[i][2];
@@ -418,8 +553,7 @@ namespace AES
 		static constexpr void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
 		{
 			uint32_t x = 0, y = 0;
-			for (; x != 4; ++x)
-			{
+			for (; x != 4; ++x) {
 				for (y = 0; y != 4; ++y)
 				{
 					_state[x][y] ^= _round_key[(x * 4) + y];
@@ -430,8 +564,7 @@ namespace AES
 		static constexpr void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
 		{
 			uint32_t x = 0, y = 0;
-			for (; x != 4; ++x)
-			{
+			for (; x != 4; ++x) {
 				for (y = 0; y != 4; ++y)
 				{
 					_state[x][y] ^= _block[(x * 4) + y];
@@ -439,13 +572,20 @@ namespace AES
 			}
 		}
 
+		static constexpr void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
+		{
+			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
+				_dest[x] = _block1[x] ^ _block2[x];
+			}
+		}
+
 		static constexpr void key_expansion(const uint8_t* _key, uint8_t* _out_round_key, const uint32_t _keysize) noexcept
 		{
 			using namespace detail;
 
-			const uint32_t columns = _keysize / 4;
-			const uint32_t rounds = columns + 6;
-			const uint32_t end = Nb * (rounds + 1);
+			const size_t columns = _keysize / 4;
+			const size_t rounds = columns + 6;
+			const size_t end = Nb * (rounds + 1);
 
 			for (uint32_t i = 0; i != columns; ++i) {
 				_out_round_key[(i * 4) + 0] = _key[(i * 4) + 0];
@@ -476,7 +616,7 @@ namespace AES
 
 					tmp[0] = tmp[0] ^ rcon[i / columns];
 				}
-				else if (i > 6 && i % columns == 4) {
+				else if (columns > 6 && i % columns == 4) {
 					tmp[0] = sbox[tmp[0]];
 					tmp[1] = sbox[tmp[1]];
 					tmp[2] = sbox[tmp[2]];
@@ -491,5 +631,9 @@ namespace AES
 		}
 	};
 }
+
+#ifdef _NAMESPACE_
+#undef _NAMESPACE_
+#endif
 
 #endif
