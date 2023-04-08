@@ -191,15 +191,15 @@ namespace _NAMESPACE_
 		{
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
-			alignas(BLOCK_SIZE) state_t state;
-			std::memcpy(state, _iv, BLOCK_SIZE);
+			alignas(BLOCK_SIZE) state_t block;
+			std::memcpy(block, _iv, BLOCK_SIZE);
 
-			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
-				xor_blocks(state, _data);
-				encrypt_block(state, expkey, m_keysize);
-				std::memcpy(_data, state, BLOCK_SIZE);
-				_data += BLOCK_SIZE;
+				xor_blocks(block, _data);
+				encrypt_block(block, expkey, m_keysize);
+				std::memcpy(_data, block, BLOCK_SIZE);
 			}
 		}
 		
@@ -212,14 +212,14 @@ namespace _NAMESPACE_
 			alignas(BLOCK_SIZE) block_t block;
 			alignas(BLOCK_SIZE) block_t iv;
 			std::memcpy(iv, _iv, BLOCK_SIZE);
-			
-			for (size_t i = 0; i != _datasize / BLOCK_SIZE; ++i)
+
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				std::memcpy(block, _data, BLOCK_SIZE);
 				decrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
 				xor_blocks(*reinterpret_cast<state_t*>(_data), iv);
 				std::memcpy(iv, block, BLOCK_SIZE);
-				_data += BLOCK_SIZE;
 			}
 		}
 
@@ -230,10 +230,10 @@ namespace _NAMESPACE_
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
-			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				encrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
-				_data += BLOCK_SIZE;
 			}
 		}
 
@@ -244,10 +244,10 @@ namespace _NAMESPACE_
 			expkey_t expkey;
 			key_expansion(_key, expkey, m_keysize);
 
-			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				decrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
-				_data += BLOCK_SIZE;
 			}
 		}
 
@@ -261,12 +261,12 @@ namespace _NAMESPACE_
 			alignas(BLOCK_SIZE) block_t block;
 			std::memcpy(block, _iv, BLOCK_SIZE);
 
-			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
 				xor_blocks(_data, block, _data);
 				std::memcpy(block, _data, BLOCK_SIZE);
-				_data += BLOCK_SIZE;
 			}
 		}
 
@@ -281,13 +281,13 @@ namespace _NAMESPACE_
 			alignas(BLOCK_SIZE) block_t enc_block;
 			std::memcpy(block, _iv, BLOCK_SIZE);
 
-			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				std::memcpy(enc_block, block, BLOCK_SIZE);
 				encrypt_block(*reinterpret_cast<state_t*>(enc_block), expkey, m_keysize);
 				std::memcpy(block, _data, BLOCK_SIZE);
 				xor_blocks(_data, enc_block, _data);
-				_data += BLOCK_SIZE;
 			}
 		}
 
@@ -301,13 +301,13 @@ namespace _NAMESPACE_
 			alignas(BLOCK_SIZE) block_t counter_block;
 			size_t counter = 0;
 
-			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				combine_nonce_counter(counter_block, _nonce, counter);
 				counter += 1;
 				encrypt_block(*reinterpret_cast<state_t*>(counter_block), expkey, m_keysize);
 				xor_blocks(_data, counter_block, _data);
-				_data += BLOCK_SIZE;
 			}
 		}
 
@@ -328,11 +328,11 @@ namespace _NAMESPACE_
 			alignas(BLOCK_SIZE) block_t block;
 			std::memcpy(block, _iv, BLOCK_SIZE);
 
-			for (size_t i = 0; i < _datasize / BLOCK_SIZE; ++i)
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
 				xor_blocks(_data, block, _data);
-				_data += BLOCK_SIZE;
 			}
 		}
 
