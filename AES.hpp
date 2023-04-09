@@ -1,10 +1,25 @@
+#pragma once
+
 #ifndef _LOGE_AES_
 #define _LOGE_AES_
 
-#include <stdint.h> // uint8_t, uint32_t... 
-
 #define _NAMESPACE_ AES
 #define _FORCEINLINE_ __forceinline
+
+#define _HAS_CXX17 (__cplusplus >= 201703L)
+
+namespace _NAMESPACE_
+{
+	typedef signed char int8_t;
+	typedef signed short int16_t;
+	typedef signed int int32_t;
+	typedef signed long long int64_t;
+
+	typedef unsigned char uint8_t;
+	typedef unsigned short uint16_t;
+	typedef unsigned int uint32_t;
+	typedef unsigned long long uint64_t;
+}
 
 namespace _NAMESPACE_
 {
@@ -14,18 +29,6 @@ namespace _NAMESPACE_
 		struct array
 		{
 			Ty m_data[SIZE];
-
-			constexpr Ty* data() {
-				return m_data;
-			}
-
-			constexpr const Ty* data() const noexcept {
-				return m_data;
-			}
-
-			constexpr size_t size() const noexcept {
-				return SIZE;
-			}
 
 			constexpr Ty& operator[](const size_t idx) noexcept {
 				return m_data[idx];
@@ -37,6 +40,9 @@ namespace _NAMESPACE_
 			}
 		};
 
+#if _HAS_CXX17 
+	inline
+#endif
 		constexpr array<uint8_t, 256> sbox = {
 			0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
 			0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -56,6 +62,9 @@ namespace _NAMESPACE_
 			0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 		};
 
+#if _HAS_CXX17 
+	inline
+#endif
 		constexpr array<uint8_t, 256> inv_sbox = {
 			0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
 			0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -75,79 +84,69 @@ namespace _NAMESPACE_
 			0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 		};
 
+#if _HAS_CXX17 
+	inline
+#endif
 		constexpr array<uint8_t, 11> rcon = {
-			0x8D, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20,
-			0x40, 0x80, 0x1B, 0x36
+			0x8D, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36
 		};
 
-#if _HAS_CXX17
-		constexpr inline
-#else
-		static const
-#endif
-		array<uint8_t, 256> gmul2 = (
-			[]()
+	constexpr uint8_t xtime(const uint8_t _byte)
+	{
+		return ((_byte << 0x01) ^ (((_byte >> 0x07) & 0x01) * 0x1B));
+	}
+
+	constexpr array<uint8_t, 256> gmul2_table()
+	{
+		array<uint8_t, 256> table{ };
+		for (uint32_t i = 0; i != 256; ++i) {
+			table[i] = (i < 0x80 ? (i << 0x01) : ((i << 0x01) ^ 0x1B));
+		}
+		return table;
+	}
+
+	constexpr array<array<uint8_t, 4>, 256> mul_table()
+	{
+		/* Generate table for inv_mix_columns
+			We only need 4 * 256 inputs because we only use the multiply by
+
+			* 0x09 ( 09 )
+			* 0x0B ( 11 )
+			* 0x0D ( 13 )
+			* 0x0E ( 14 )
+		*/
+
+		array<array<uint8_t, 4>, 256> table{ };
+		for (uint32_t input = 0; input != 256; ++input) {
+			for (uint32_t constant = 9, index = 0; index != 4; constant += 2, ++index)
 			{
-				auto gmul2 = [](uint8_t b) noexcept -> uint8_t {
-					if (b < 0x80) {
-						return b << 1;
-					}
-					else {
-						return (b << 1) ^ 0x1b;
-					}
-				};
+				constant = (constant == 15) ? 14 : constant;
+				table[input][index] = (
+					((constant & 1) * input) ^
+					((constant >> 1 & 1) * xtime(input)) ^
+					((constant >> 2 & 1) * xtime(xtime(input))) ^
+					((constant >> 3 & 1) * xtime(xtime(xtime(input)))) ^
+					((constant >> 4 & 1) * xtime(xtime(xtime(xtime(input)))))
+					);
+			}
+		}
 
-				array<uint8_t, 256> table{ };
+		return table;
+	}
 
-				for (uint32_t i = 0; i != 256; ++i) {
-					table[i] = gmul2(i);
-				}
-
-				return table;
-			}()
-		);
+#if _HAS_CXX17 
+	inline
+#else 
+	static
+#endif
+		constexpr array<uint8_t, 256> gmul2 = gmul2_table();
 
 #if _HAS_CXX17
-		constexpr inline
+	inline
 #else
-		static const
+	static
 #endif
-		array<array<uint8_t, 4>, 256> mul = (
-			[]()
-			{
-				auto xtime = [](uint8_t x) noexcept -> uint8_t {
-					return ((x << 0x01) ^ (((x >> 0x07) & 0x01) * 0x1B));
-				};
-
-				array<array<uint8_t, 4>, 256> table{ };
-
-					/* Generate table for inv_mix_columns
-						We only need 4 * 256 inputs because we only use the multiply by
-
-						* 0x09 ( 09 )
-						* 0x0B ( 11 )
-						* 0x0D ( 13 )
-						* 0x0E ( 14 )
-					*/
-				for (int32_t input = 0; input != 256; ++input) {
-					for (int32_t constant = 9, index = 0; index != 4; constant += 2, index += 1)
-					{
-						if (constant == 15) {
-							constant = 14;
-						}
-						table[input][index] = (
-							((constant & 1) * input) ^
-							((constant >> 1 & 1) * xtime(input)) ^
-							((constant >> 2 & 1) * xtime(xtime(input))) ^
-							((constant >> 3 & 1) * xtime(xtime(xtime(input)))) ^
-							((constant >> 4 & 1) * xtime(xtime(xtime(xtime(input)))))
-						);
-					}
-				}
-
-				return table;
-			}()
-		);
+		constexpr array<array<uint8_t, 4>, 256> mul = mul_table();
 
 		constexpr void* memcpy(void* _dst, const void* const _src, const size_t _size)
 		{
@@ -387,7 +386,7 @@ namespace _NAMESPACE_
 		}
 
 		// Output feedback mode, encrypt and decrypt
-		constexpr void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
+		constexpr void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
 		{
 			check_data(_datasize);
 
@@ -406,7 +405,7 @@ namespace _NAMESPACE_
 		}
 
 		// Output feedback mode, decrypt and encrypt
-		constexpr void decrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv)
+		constexpr void decrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
 		{
 			encrypt_ofb(_data, _datasize, _key, _iv);
 		}
@@ -693,12 +692,10 @@ namespace _NAMESPACE_
 
 		static constexpr void check_data(const size_t _size)
 		{
-			if (_size % BLOCK_SIZE != 0) {
+			if (!_size || _size % BLOCK_SIZE != 0) {
 				throw("Inavlid _datasize specified.");
 			}
 		}
-
-#undef FUNC_ARGS
 	};
 }
 
