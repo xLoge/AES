@@ -6,7 +6,9 @@
 #define _NAMESPACE_ AES
 #define _FORCEINLINE_ __forceinline
 
+#ifndef _HAS_CXX17
 #define _HAS_CXX17 (__cplusplus >= 201703L)
+#endif
 
 namespace _NAMESPACE_
 {
@@ -19,6 +21,7 @@ namespace _NAMESPACE_
 	typedef unsigned short uint16_t;
 	typedef unsigned int uint32_t;
 	typedef unsigned long long uint64_t;
+	typedef unsigned long long size_t;
 }
 
 namespace _NAMESPACE_
@@ -91,48 +94,48 @@ namespace _NAMESPACE_
 			0x8D, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36
 		};
 
-	constexpr uint8_t xtime(const uint8_t _byte)
-	{
-		return ((_byte << 0x01) ^ (((_byte >> 0x07) & 0x01) * 0x1B));
-	}
-
-	constexpr array<uint8_t, 256> gmul2_table()
-	{
-		array<uint8_t, 256> table{ };
-		for (uint32_t i = 0; i != 256; ++i) {
-			table[i] = (i < 0x80 ? (i << 0x01) : ((i << 0x01) ^ 0x1B));
+		constexpr uint8_t xtime(const uint8_t _byte)
+		{
+			return ((_byte << 0x01) ^ (((_byte >> 0x07) & 0x01) * 0x1B));
 		}
-		return table;
-	}
 
-	constexpr array<array<uint8_t, 4>, 256> mul_table()
-	{
-		/* Generate table for inv_mix_columns
-			We only need 4 * 256 inputs because we only use the multiply by
-
-			* 0x09 ( 09 )
-			* 0x0B ( 11 )
-			* 0x0D ( 13 )
-			* 0x0E ( 14 )
-		*/
-
-		array<array<uint8_t, 4>, 256> table{ };
-		for (uint32_t input = 0; input != 256; ++input) {
-			for (uint32_t constant = 9, index = 0; index != 4; constant += 2, ++index)
-			{
-				constant = (constant == 15) ? 14 : constant;
-				table[input][index] = (
-					((constant & 1) * input) ^
-					((constant >> 1 & 1) * xtime(input)) ^
-					((constant >> 2 & 1) * xtime(xtime(input))) ^
-					((constant >> 3 & 1) * xtime(xtime(xtime(input)))) ^
-					((constant >> 4 & 1) * xtime(xtime(xtime(xtime(input)))))
-					);
+		constexpr array<uint8_t, 256> gmul2_table()
+		{
+			array<uint8_t, 256> table{ };
+			for (uint32_t i = 0; i != 256; ++i) {
+				table[i] = (i < 0x80 ? (i << 0x01) : ((i << 0x01) ^ 0x1B));
 			}
+			return table;
 		}
 
-		return table;
-	}
+		constexpr array<array<uint8_t, 4>, 256> mul_table()
+		{
+			/* Generate table for inv_mix_columns
+				We only need 4 * 256 inputs because we only use the multiply by
+
+				* 0x09 ( 09 )
+				* 0x0B ( 11 )
+				* 0x0D ( 13 )
+				* 0x0E ( 14 )
+			*/
+
+			array<array<uint8_t, 4>, 256> table{ };
+			for (uint32_t input = 0; input != 256; ++input) {
+				for (uint32_t constant = 9, index = 0; index != 4; constant += 2, ++index)
+				{
+					constant = (constant == 15) ? 14 : constant;
+					table[input][index] = (
+						((constant & 1) * input) ^
+						((constant >> 1 & 1) * xtime(input)) ^
+						((constant >> 2 & 1) * xtime(xtime(input))) ^
+						((constant >> 3 & 1) * xtime(xtime(xtime(input)))) ^
+						((constant >> 4 & 1) * xtime(xtime(xtime(xtime(input)))))
+						);
+				}
+			}
+
+			return table;
+		}
 
 #if _HAS_CXX17 
 	inline
@@ -441,21 +444,20 @@ namespace _NAMESPACE_
 
 		static constexpr _FORCEINLINE_ void mix_columns(state_t& _state) noexcept
 		{
-			using namespace detail;
+			uint8_t a{ }, b{ }, c{ }, d{ }, tmp{ };
 
-			uint8_t a{}, b{}, c{}, d{}, tmp{};
-
-			for (uint32_t i = 0; i != 4; ++i) {
+			for (uint32_t i = 0; i != 4; ++i)
+			{
 				a = _state[i][0];
 				b = _state[i][1];
 				c = _state[i][2];
 				d = _state[i][3];
 
 				tmp = a ^ b ^ c ^ d;
-				_state[i][0] ^= gmul2[a ^ b] ^ tmp;
-				_state[i][1] ^= gmul2[b ^ c] ^ tmp;
-				_state[i][2] ^= gmul2[c ^ d] ^ tmp;
-				_state[i][3] ^= gmul2[d ^ a] ^ tmp;
+				_state[i][0] ^= detail::gmul2[a ^ b] ^ tmp;
+				_state[i][1] ^= detail::gmul2[b ^ c] ^ tmp;
+				_state[i][2] ^= detail::gmul2[c ^ d] ^ tmp;
+				_state[i][3] ^= detail::gmul2[d ^ a] ^ tmp;
 			}
 		}
 
@@ -502,14 +504,10 @@ namespace _NAMESPACE_
 
 		static constexpr _FORCEINLINE_ void sub_bytes(state_t& _state) noexcept
 		{
-			using namespace detail;
+			uint8_t* const state = (uint8_t*)_state;
 
-			uint32_t x{}, y{};
-			for (; x != 4; ++x) {
-				for (y = 0; y != 4; ++y)
-				{
-					_state[x][y] = sbox[_state[x][y]];
-				}
+			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
+				state[i] = detail::sbox[state[i]];
 			}
 		}
 
@@ -534,21 +532,21 @@ namespace _NAMESPACE_
 
 		static constexpr _FORCEINLINE_ void inv_mix_columns(state_t& _state) noexcept
 		{
-			using namespace detail;
-			
 			constexpr uint8_t x09 = 0;
 			constexpr uint8_t x0B = 1;
 			constexpr uint8_t x0D = 2;
 			constexpr uint8_t x0E = 3;
 
-			uint8_t a{}, b{}, c{}, d{};
+			uint8_t a{ }, b{ }, c{ }, d{ };
 
-			for (uint32_t i = 0; i != 4; ++i) {
+			for (uint32_t i = 0; i != 4; ++i)
+			{
 				a = _state[i][0];
 				b = _state[i][1];
 				c = _state[i][2];
 				d = _state[i][3];
 
+				using namespace detail;
 				_state[i][0] = mul[a][x0E] ^ mul[b][x0B] ^ mul[c][x0D] ^ mul[d][x09];
 				_state[i][1] = mul[a][x09] ^ mul[b][x0E] ^ mul[c][x0B] ^ mul[d][x0D];
 				_state[i][2] = mul[a][x0D] ^ mul[b][x09] ^ mul[c][x0E] ^ mul[d][x0B];
@@ -599,14 +597,10 @@ namespace _NAMESPACE_
 
 		static constexpr _FORCEINLINE_ void inv_sub_bytes(state_t& _state) noexcept
 		{
-			using namespace detail;
+			uint8_t* const state = (uint8_t*)_state;
 
-			uint32_t x{}, y{};
-			for (; x != 4; ++x) {
-				for (y = 0; y != 4; ++y)
-				{
-					_state[x][y] = inv_sbox[_state[x][y]];
-				}
+			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
+				state[i] = detail::inv_sbox[state[i]];
 			}
 		}
 
@@ -618,12 +612,7 @@ namespace _NAMESPACE_
 			const size_t rounds = columns + 6;
 			const size_t end = Nb * (rounds + 1);
 
-			for (uint32_t i = 0; i != columns; ++i) {
-				_out_round_key[(i * 4) + 0] = _key[(i * 4) + 0];
-				_out_round_key[(i * 4) + 1] = _key[(i * 4) + 1];
-				_out_round_key[(i * 4) + 2] = _key[(i * 4) + 2];
-				_out_round_key[(i * 4) + 3] = _key[(i * 4) + 3];
-			}
+			detail::memcpy(_out_round_key, _key, _keysize);
 
 			uint8_t tmp[4]{ };
 			for (uint32_t i = columns; i != end; ++i)
@@ -634,7 +623,7 @@ namespace _NAMESPACE_
 				tmp[3] = _out_round_key[(i - 1) * 4 + 3];
 
 				if (i % columns == 0) {
-					const auto tmp2 = tmp[0];
+					const uint8_t tmp2 = tmp[0];
 					tmp[0] = tmp[1];
 					tmp[1] = tmp[2];
 					tmp[2] = tmp[3];
@@ -663,24 +652,12 @@ namespace _NAMESPACE_
 		
 		static constexpr void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
 		{
-			uint32_t x = 0, y = 0;
-			for (; x != 4; ++x) {
-				for (y = 0; y != 4; ++y)
-				{
-					_state[x][y] ^= _round_key[(x * 4) + y];
-				}
-			}
+			xor_blocks(reinterpret_cast<const uint8_t*>(_state), _round_key, reinterpret_cast<uint8_t*>(_state));
 		}
 
 		static constexpr void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
 		{
-			uint32_t x = 0, y = 0;
-			for (; x != 4; ++x) {
-				for (y = 0; y != 4; ++y)
-				{
-					_state[x][y] ^= _block[(x * 4) + y];
-				}
-			}
+			xor_blocks(reinterpret_cast<const uint8_t*>(_state), _block, reinterpret_cast<uint8_t*>(_state));
 		}
 
 		static constexpr void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
@@ -692,7 +669,7 @@ namespace _NAMESPACE_
 
 		static constexpr void check_data(const size_t _size)
 		{
-			if (!_size || _size % BLOCK_SIZE != 0) {
+			if (_size == 0 || _size % BLOCK_SIZE != 0) {
 				throw("Inavlid _datasize specified.");
 			}
 		}
