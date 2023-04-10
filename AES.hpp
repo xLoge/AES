@@ -4,7 +4,13 @@
 #define _LOGE_AES_
 
 #define _NAMESPACE_ AES
+
+#ifdef _MSC_VER
 #define _FORCEINLINE_ __forceinline
+#endif
+#ifdef __GNUG__
+#define _FORCEINLINE_ __attribute__((always_inline))
+#endif
 
 #ifndef _HAS_CXX20
 #define _HAS_CXX20 (__cplusplus >= 202002L)
@@ -495,11 +501,6 @@ namespace _NAMESPACE_
 
 		_FORCEINLINE_ static constexpr void inv_mix_columns(state_t& _state) noexcept
 		{
-			constexpr uint8_t x09 = 0;
-			constexpr uint8_t x0B = 1;
-			constexpr uint8_t x0D = 2;
-			constexpr uint8_t x0E = 3;
-
 			uint8_t a{ }, b{ }, c{ }, d{ };
 
 			for (uint32_t i = 0; i != 4; ++i)
