@@ -4,7 +4,11 @@
 * The class should have no errors, but if you find one please open a issue :)
 * C++14 and above
 
-# Usage
+## Speed
+
+<B>
+
+## Usage
 
 Here is an example:
 
