@@ -6,10 +6,6 @@
 #define _NAMESPACE_ AES
 #define _FORCEINLINE_ __forceinline
 
-#ifndef _HAS_CXX17
-#define _HAS_CXX17 (__cplusplus >= 201703L)
-#endif
-
 #ifndef _HAS_CXX20
 #define _HAS_CXX20 (__cplusplus >= 202002L)
 #endif
