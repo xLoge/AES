@@ -10,6 +10,10 @@
 #define _HAS_CXX17 (__cplusplus >= 201703L)
 #endif
 
+#ifndef _HAS_CXX20
+#define _HAS_CXX20 (__cplusplus >= 202002L)
+#endif
+
 namespace _NAMESPACE_
 {
 	typedef signed char int8_t;
@@ -32,7 +36,7 @@ namespace _NAMESPACE_
 		struct array
 		{
 			Ty m_data[SIZE];
-
+			
 			constexpr Ty& operator[](const size_t idx) noexcept {
 				return m_data[idx];
 			}
@@ -43,9 +47,6 @@ namespace _NAMESPACE_
 			}
 		};
 
-#if _HAS_CXX17 
-	inline
-#endif
 		constexpr array<uint8_t, 256> sbox = {
 			0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
 			0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -65,9 +66,6 @@ namespace _NAMESPACE_
 			0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 		};
 
-#if _HAS_CXX17 
-	inline
-#endif
 		constexpr array<uint8_t, 256> inv_sbox = {
 			0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
 			0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -87,9 +85,6 @@ namespace _NAMESPACE_
 			0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 		};
 
-#if _HAS_CXX17 
-	inline
-#endif
 		constexpr array<uint8_t, 11> rcon = {
 			0x8D, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36
 		};
@@ -99,57 +94,31 @@ namespace _NAMESPACE_
 			return ((_byte << 0x01) ^ (((_byte >> 0x07) & 0x01) * 0x1B));
 		}
 
-		constexpr array<uint8_t, 256> gmul2_table()
+#if _HAS_CXX20
+	consteval
+#else 
+	constexpr
+#endif
+		array<uint8_t, 256> gmul_table(const uint8_t byte)
 		{
 			array<uint8_t, 256> table{ };
-			for (uint32_t i = 0; i != 256; ++i) {
-				table[i] = (i < 0x80 ? (i << 0x01) : ((i << 0x01) ^ 0x1B));
-			}
-			return table;
-		}
-
-		constexpr array<array<uint8_t, 4>, 256> mul_table()
-		{
-			/* Generate table for inv_mix_columns
-				We only need 4 * 256 inputs because we only use the multiply by
-
-				* 0x09 ( 09 )
-				* 0x0B ( 11 )
-				* 0x0D ( 13 )
-				* 0x0E ( 14 )
-			*/
-
-			array<array<uint8_t, 4>, 256> table{ };
 			for (uint32_t input = 0; input != 256; ++input) {
-				for (uint32_t constant = 9, index = 0; index != 4; constant += 2, ++index)
-				{
-					constant = (constant == 15) ? 14 : constant;
-					table[input][index] = (
-						((constant & 1) * input) ^
-						((constant >> 1 & 1) * xtime(input)) ^
-						((constant >> 2 & 1) * xtime(xtime(input))) ^
-						((constant >> 3 & 1) * xtime(xtime(xtime(input)))) ^
-						((constant >> 4 & 1) * xtime(xtime(xtime(xtime(input)))))
-						);
-				}
+				table[input] = (
+					((byte & 1) * input) ^
+					((byte >> 1 & 1) * xtime(input)) ^
+					((byte >> 2 & 1) * xtime(xtime(input))) ^
+					((byte >> 3 & 1) * xtime(xtime(xtime(input)))) ^
+					((byte >> 4 & 1) * xtime(xtime(xtime(xtime(input)))))
+				);
 			}
-
 			return table;
 		}
 
-#if _HAS_CXX17 
-	inline
-#else 
-	static
-#endif
-		constexpr array<uint8_t, 256> gmul2 = gmul2_table();
-
-#if _HAS_CXX17
-	inline
-#else
-	static
-#endif
-		constexpr array<array<uint8_t, 4>, 256> mul = mul_table();
+		constexpr array<uint8_t, 256> gmul2 = gmul_table(2);
+		constexpr array<uint8_t, 256> gmul9 = gmul_table(9);
+		constexpr array<uint8_t, 256> gmul11 = gmul_table(11);
+		constexpr array<uint8_t, 256> gmul13 = gmul_table(13);
+		constexpr array<uint8_t, 256> gmul14 = gmul_table(14);
 
 		constexpr void* memcpy(void* _dst, const void* const _src, const size_t _size)
 		{
@@ -188,9 +157,7 @@ namespace _NAMESPACE_
 		using expkey_t = uint8_t[MAX_EXPKEY_SIZE];
 
 		AES_KEY_LEN m_mode = AES128;
-		uint8_t m_columns = m_mode / 32;
-		uint8_t m_rounds = m_columns + 6;
-		uint8_t m_keysize = m_mode / 8;
+		uint32_t m_keysize = m_mode / 8;
 
 	public:
 
@@ -442,7 +409,7 @@ namespace _NAMESPACE_
 			add_round_key(_state, &_round_key[rounds * (Nb * 4)]);
 		}
 
-		static constexpr _FORCEINLINE_ void mix_columns(state_t& _state) noexcept
+		_FORCEINLINE_ static constexpr void mix_columns(state_t& _state) noexcept
 		{
 			uint8_t a{ }, b{ }, c{ }, d{ }, tmp{ };
 
@@ -461,7 +428,7 @@ namespace _NAMESPACE_
 			}
 		}
 
-		static constexpr _FORCEINLINE_ void shift_rows(state_t& _state) noexcept
+		_FORCEINLINE_ static constexpr void shift_rows(state_t& _state) noexcept
 		{
 			/*
 			* shift rows
@@ -502,7 +469,7 @@ namespace _NAMESPACE_
 			_state[0][3] = tmp;				// 65 -> tmp (68)
 		}
 
-		static constexpr _FORCEINLINE_ void sub_bytes(state_t& _state) noexcept
+		_FORCEINLINE_ static constexpr void sub_bytes(state_t& _state) noexcept
 		{
 			uint8_t* const state = (uint8_t*)_state;
 
@@ -530,7 +497,7 @@ namespace _NAMESPACE_
 			add_round_key(_state, _round_key);
 		}
 
-		static constexpr _FORCEINLINE_ void inv_mix_columns(state_t& _state) noexcept
+		_FORCEINLINE_ static constexpr void inv_mix_columns(state_t& _state) noexcept
 		{
 			constexpr uint8_t x09 = 0;
 			constexpr uint8_t x0B = 1;
@@ -547,14 +514,14 @@ namespace _NAMESPACE_
 				d = _state[i][3];
 
 				using namespace detail;
-				_state[i][0] = mul[a][x0E] ^ mul[b][x0B] ^ mul[c][x0D] ^ mul[d][x09];
-				_state[i][1] = mul[a][x09] ^ mul[b][x0E] ^ mul[c][x0B] ^ mul[d][x0D];
-				_state[i][2] = mul[a][x0D] ^ mul[b][x09] ^ mul[c][x0E] ^ mul[d][x0B];
-				_state[i][3] = mul[a][x0B] ^ mul[b][x0D] ^ mul[c][x09] ^ mul[d][x0E];
+				_state[i][0] = gmul14[a] ^ gmul11[b] ^ gmul13[c] ^ gmul9[d];
+				_state[i][1] = gmul9[a] ^ gmul14[b] ^ gmul11[c] ^ gmul13[d];
+				_state[i][2] = gmul13[a] ^ gmul9[b] ^ gmul14[c] ^ gmul11[d];
+				_state[i][3] = gmul11[a] ^ gmul13[b] ^ gmul9[c] ^ gmul14[d];
 			}
 		}
 
-		static constexpr _FORCEINLINE_ void inv_shift_rows(state_t& _state) noexcept
+		_FORCEINLINE_ static constexpr void inv_shift_rows(state_t& _state) noexcept
 		{
 			/*
 			* reversed shift rows
@@ -595,7 +562,7 @@ namespace _NAMESPACE_
 			_state[3][3] = tmp;				// 67 -> tmp (68)
 		}
 
-		static constexpr _FORCEINLINE_ void inv_sub_bytes(state_t& _state) noexcept
+		_FORCEINLINE_ static constexpr void inv_sub_bytes(state_t& _state) noexcept
 		{
 			uint8_t* const state = (uint8_t*)_state;
 
@@ -652,12 +619,18 @@ namespace _NAMESPACE_
 		
 		static constexpr void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
 		{
-			xor_blocks(reinterpret_cast<const uint8_t*>(_state), _round_key, reinterpret_cast<uint8_t*>(_state));
+			uint8_t* const state = (uint8_t*)_state;
+			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
+				state[x] ^= _round_key[x];
+			}
 		}
 
 		static constexpr void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
 		{
-			xor_blocks(reinterpret_cast<const uint8_t*>(_state), _block, reinterpret_cast<uint8_t*>(_state));
+			uint8_t* const state = (uint8_t*)_state;
+			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
+				state[x] ^= _block[x];
+			}
 		}
 
 		static constexpr void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
