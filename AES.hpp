@@ -12,10 +12,6 @@
 #define _FORCEINLINE_ __attribute__((always_inline))
 #endif
 
-#ifndef _HAS_CXX20
-#define _HAS_CXX20 (__cplusplus >= 202002L)
-#endif
-
 namespace _NAMESPACE_
 {
 	typedef signed char int8_t;
@@ -35,17 +31,17 @@ namespace _NAMESPACE_
 	namespace detail
 	{
 		template <class Ty, size_t SIZE>
-		struct array
+		class array
 		{
+		public:
 			Ty m_data[SIZE];
-			
-			constexpr Ty& operator[](const size_t idx) noexcept {
-				return m_data[idx];
+
+			constexpr Ty& operator[](const size_t _at) noexcept {
+				return m_data[_at];
 			}
 
-			constexpr const Ty operator[](const size_t idx) const noexcept {
-
-				return m_data[idx];
+			constexpr const Ty operator[](const size_t _at) const noexcept {
+				return m_data[_at];
 			}
 		};
 
@@ -96,12 +92,7 @@ namespace _NAMESPACE_
 			return ((_byte << 0x01) ^ (((_byte >> 0x07) & 0x01) * 0x1B));
 		}
 
-#if _HAS_CXX20
-	consteval
-#else 
-	constexpr
-#endif
-		array<uint8_t, 256> gmul_table(const uint8_t byte)
+		constexpr array<uint8_t, 256> gmul_table(const uint8_t byte)
 		{
 			array<uint8_t, 256> table{ };
 			for (uint32_t input = 0; input != 256; ++input) {
@@ -121,17 +112,6 @@ namespace _NAMESPACE_
 		constexpr array<uint8_t, 256> gmul11 = gmul_table(11);
 		constexpr array<uint8_t, 256> gmul13 = gmul_table(13);
 		constexpr array<uint8_t, 256> gmul14 = gmul_table(14);
-
-		constexpr void* memcpy(void* _dst, const void* const _src, const size_t _size)
-		{
-			const uint8_t* const end = static_cast<uint8_t*>(_dst) + _size;
-			const uint8_t* src = static_cast<const uint8_t*>(_src);
-			uint8_t* dst = static_cast<uint8_t*>(_dst);
-			while (dst != end) {
-				*dst++ = *src++;
-			}
-			return _dst;
-		}
 	}
 }
 
@@ -150,6 +130,7 @@ namespace _NAMESPACE_
 	class AES
 	{
 	private:
+		static constexpr AES_KEY_LEN DEFAULT_MODE = AES128;
 		static constexpr size_t Nb = 4;
 		static constexpr size_t BLOCK_SIZE = 16;
 		static constexpr size_t MAX_EXPKEY_SIZE = 4 * (Nb * (14 + 1));
@@ -158,15 +139,13 @@ namespace _NAMESPACE_
 		using block_t = uint8_t[BLOCK_SIZE];
 		using expkey_t = uint8_t[MAX_EXPKEY_SIZE];
 
-		AES_KEY_LEN m_mode = AES128;
-		uint32_t m_keysize = m_mode / 8;
-
+		uint16_t m_keysize = DEFAULT_MODE / 8;
 	public:
 
 		constexpr AES() = default;
 
-		constexpr AES(const AES_KEY_LEN keylen) noexcept
-			: m_mode(keylen)
+		constexpr AES(const AES_KEY_LEN _keymode) noexcept
+			: m_keysize(_keymode / 8)
 		{
 
 		}
@@ -178,18 +157,19 @@ namespace _NAMESPACE_
 
 			expkey_t expkey{ };
 			key_expansion(_key, expkey, m_keysize);
-			state_t block{ };
-			detail::memcpy(block, _iv, BLOCK_SIZE);
+
+			block_t block{ };
+			copy_block(block, _iv);
 
 			const size_t end = _datasize / BLOCK_SIZE;
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				xor_blocks(block, _data);
-				encrypt_block(block, expkey, m_keysize);
-				detail::memcpy(_data, block, BLOCK_SIZE);
+				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
+				copy_block(_data, block);
 			}
 		}
-		
+
 		// Cipher block chaining mode, decrypt
 		constexpr void decrypt_cbc(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
 		{
@@ -198,17 +178,17 @@ namespace _NAMESPACE_
 			expkey_t expkey{ };
 			key_expansion(_key, expkey, m_keysize);
 
-			block_t enc_data{ };
 			block_t block{ };
-			detail::memcpy(block, _iv, BLOCK_SIZE);
+			block_t cipher_block{ };
+			copy_block(block, _iv);
 
 			const size_t end = _datasize / BLOCK_SIZE;
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
-				detail::memcpy(enc_data, _data, BLOCK_SIZE);
+				copy_block(cipher_block, _data);
 				decrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
-				xor_blocks(*reinterpret_cast<state_t*>(_data), block);
-				detail::memcpy(block, enc_data, BLOCK_SIZE);
+				xor_blocks(_data, block);
+				copy_block(block, cipher_block);
 			}
 		}
 
@@ -220,18 +200,18 @@ namespace _NAMESPACE_
 			expkey_t expkey{ };
 			key_expansion(_key, expkey, m_keysize);
 
-			state_t block{ };
-			block_t last_plain{ };
-			detail::memcpy(block, _iv, BLOCK_SIZE);
+			block_t block{ };
+			block_t plain_block{ };
+			copy_block(block, _iv);
 
 			const size_t end = _datasize / BLOCK_SIZE;
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
-				detail::memcpy(last_plain, _data, BLOCK_SIZE);
+				copy_block(plain_block, _data);
 				xor_blocks(block, _data);
-				encrypt_block(block, expkey, m_keysize);
-				detail::memcpy(_data, block, BLOCK_SIZE);
-				xor_blocks(block, last_plain);
+				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
+				copy_block(_data, block);
+				xor_blocks(block, plain_block);
 			}
 		}
 
@@ -242,20 +222,114 @@ namespace _NAMESPACE_
 
 			expkey_t expkey{ };
 			key_expansion(_key, expkey, m_keysize);
-			
+
 			block_t block{ };
-			block_t last_enc{ };
-			detail::memcpy(block, _iv, BLOCK_SIZE);
+			block_t cipher_block{ };
+			copy_block(block, _iv);
 
 			const size_t end = _datasize / BLOCK_SIZE;
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
-				detail::memcpy(last_enc, _data, BLOCK_SIZE);
+				copy_block(cipher_block, _data);
 				decrypt_block(*reinterpret_cast<state_t*>(_data), expkey, m_keysize);
 				xor_blocks(_data, block, _data);
-				xor_blocks(last_enc, _data, last_enc);
-				detail::memcpy(block, last_enc, BLOCK_SIZE);
+				xor_blocks(cipher_block, _data);
+				copy_block(block, cipher_block);
 			}
+		}
+
+		// Cipher feedback mode, encrypt
+		constexpr void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
+		{
+			check_data(_datasize);
+
+			expkey_t expkey{ };
+			key_expansion(_key, expkey, m_keysize);
+
+			block_t block{ };
+			copy_block(block, _iv);
+
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			{
+				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
+				xor_blocks(_data, block, _data);
+				copy_block(block, _data);
+			}
+		}
+
+		// Cipher feedback mode, decrypt
+		constexpr void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
+		{
+			check_data(_datasize);
+
+			expkey_t expkey{ };
+			key_expansion(_key, expkey, m_keysize);
+
+			block_t block{ };
+			block_t cipher_block{ };
+			copy_block(block, _iv);
+
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			{
+				copy_block(cipher_block, block);
+				encrypt_block(*reinterpret_cast<state_t*>(cipher_block), expkey, m_keysize);
+				copy_block(block, _data);
+				xor_blocks(_data, cipher_block);
+			}
+		}
+
+		// Counter mode, encrypt and decrypt
+		constexpr void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const
+		{
+			check_data(_datasize);
+
+			expkey_t expkey{ };
+			key_expansion(_key, expkey, m_keysize);
+
+			size_t counter{ };
+			block_t counter_block{ };
+
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			{
+				combine_nonce_counter(counter_block, _nonce, counter);
+				encrypt_block(*reinterpret_cast<state_t*>(counter_block), expkey, m_keysize);
+				xor_blocks(_data, counter_block);
+				counter += 1;
+			}
+		}
+
+		// Counter mode, decrypt and encrypt 
+		constexpr void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const
+		{
+			encrypt_ctr(_data, _datasize, _key, _nonce);
+		}
+
+		// Output feedback mode, encrypt and decrypt
+		constexpr void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
+		{
+			check_data(_datasize);
+
+			expkey_t expkey{ };
+			key_expansion(_key, expkey, m_keysize);
+
+			block_t block{ };
+			copy_block(block, _iv);
+
+			const size_t end = _datasize / BLOCK_SIZE;
+			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			{
+				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
+				xor_blocks(_data, block, _data);
+			}
+		}
+
+		// Output feedback mode, decrypt and encrypt
+		constexpr void decrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
+		{
+			encrypt_ofb(_data, _datasize, _key, _iv);
 		}
 
 		// Electronic codebook mode, encrypt
@@ -288,102 +362,13 @@ namespace _NAMESPACE_
 			}
 		}
 
-		// Cipher feedback mode, encrypt
-		constexpr void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
+		constexpr uint16_t keysize() const noexcept
 		{
-			check_data(_datasize);
-
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
-
-			block_t block { };
-			detail::memcpy(block, _iv, BLOCK_SIZE);
-
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
-			{
-				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
-				xor_blocks(_data, block, _data);
-				detail::memcpy(block, _data, BLOCK_SIZE);
-			}
-		}
-
-		// Cipher feedback mode, decrypt
-		constexpr void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
-		{
-			check_data(_datasize);
-
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
-
-			block_t block{ };
-			block_t enc_block{ };
-			detail::memcpy(block, _iv, BLOCK_SIZE);
-
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
-			{
-				detail::memcpy(enc_block, block, BLOCK_SIZE);
-				encrypt_block(*reinterpret_cast<state_t*>(enc_block), expkey, m_keysize);
-				detail::memcpy(block, _data, BLOCK_SIZE);
-				xor_blocks(_data, enc_block, _data);
-			}
-		}
-
-		// Counter mode, encrypt and decrypt
-		constexpr void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const
-		{
-			check_data(_datasize);
-
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
-
-			block_t counter_block{ };
-			size_t counter = 0;
-
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
-			{
-				combine_nonce_counter(counter_block, _nonce, counter);
-				counter += 1;
-				encrypt_block(*reinterpret_cast<state_t*>(counter_block), expkey, m_keysize);
-				xor_blocks(_data, counter_block, _data);
-			}
-		}
-
-		// Counter mode, decrypt and encrypt 
-		constexpr void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const 
-		{
-			encrypt_ctr(_data, _datasize, _key, _nonce);
-		}
-
-		// Output feedback mode, encrypt and decrypt
-		constexpr void encrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
-		{
-			check_data(_datasize);
-
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
-
-			block_t block{ };
-			detail::memcpy(block, _iv, BLOCK_SIZE);
-
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
-			{
-				encrypt_block(*reinterpret_cast<state_t*>(block), expkey, m_keysize);
-				xor_blocks(_data, block, _data);
-			}
-		}
-
-		// Output feedback mode, decrypt and encrypt
-		constexpr void decrypt_ofb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
-		{
-			encrypt_ofb(_data, _datasize, _key, _iv);
+			return m_keysize;
 		}
 
 	private:
-		static constexpr void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
+		_FORCEINLINE_ static void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
 		{
 			block_t counter_block{ };
 			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
@@ -393,7 +378,7 @@ namespace _NAMESPACE_
 			xor_blocks(_nonce, counter_block, _combined);
 		}
 
-		static constexpr void encrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		static void encrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
 		{
 			add_round_key(_state, _round_key);
 
@@ -411,43 +396,27 @@ namespace _NAMESPACE_
 			add_round_key(_state, &_round_key[rounds * (Nb * 4)]);
 		}
 
-		_FORCEINLINE_ static constexpr void mix_columns(state_t& _state) noexcept
+		_FORCEINLINE_ static void mix_columns(state_t& _state) noexcept
 		{
-			uint8_t a{ }, b{ }, c{ }, d{ }, tmp{ };
+			uint8_t a, b, c, d, tmp;
 
-			for (uint32_t i = 0; i != 4; ++i)
-			{
+			for (uint32_t i = 0; i != 4; ++i) {
+				using namespace detail;
 				a = _state[i][0];
 				b = _state[i][1];
 				c = _state[i][2];
 				d = _state[i][3];
 
 				tmp = a ^ b ^ c ^ d;
-				_state[i][0] ^= detail::gmul2[a ^ b] ^ tmp;
-				_state[i][1] ^= detail::gmul2[b ^ c] ^ tmp;
-				_state[i][2] ^= detail::gmul2[c ^ d] ^ tmp;
-				_state[i][3] ^= detail::gmul2[d ^ a] ^ tmp;
+				_state[i][0] ^= gmul2[a ^ b] ^ tmp;
+				_state[i][1] ^= gmul2[b ^ c] ^ tmp;
+				_state[i][2] ^= gmul2[c ^ d] ^ tmp;
+				_state[i][3] ^= gmul2[d ^ a] ^ tmp;
 			}
 		}
 
-		_FORCEINLINE_ static constexpr void shift_rows(state_t& _state) noexcept
+		_FORCEINLINE_ static void shift_rows(state_t& _state) noexcept
 		{
-			/*
-			* shift rows
-
-				---------------      ---------------
-	  Column -> | 35 36 37 38 |	 ->  | 35 36 37 38 |  nothing
-				| 45 46 47 48 |	 ->  | 46 47 48 45 |  1 Left or 3 Right
-				| 55 56 57 58 |	 ->  | 57 58 55 56 |  2 Left or 2 Right
-				| 65 66 67 68 |	 ->  | 68 65 66 67 |  3 Left or 1 Right
-				---------------      ---------------
-				  ^
-				  |
-				 Row
-
-			state[ROW][COLUMN]
-			*/
-
 			// Column 2
 			uint8_t tmp = _state[0][1];		// tmp -> 45
 			_state[0][1] = _state[1][1];	// 45 -> 46
@@ -471,16 +440,15 @@ namespace _NAMESPACE_
 			_state[0][3] = tmp;				// 65 -> tmp (68)
 		}
 
-		_FORCEINLINE_ static constexpr void sub_bytes(state_t& _state) noexcept
+		_FORCEINLINE_ static void sub_bytes(state_t& _state) noexcept
 		{
-			uint8_t* const state = (uint8_t*)_state;
-
+			uint8_t* const state = reinterpret_cast<uint8_t*>(_state);
 			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
 				state[i] = detail::sbox[state[i]];
 			}
 		}
 
-		static constexpr void decrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		static void decrypt_block(state_t& _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
 		{
 			const uint32_t rounds = _keysize / 4 + 6;
 
@@ -499,12 +467,11 @@ namespace _NAMESPACE_
 			add_round_key(_state, _round_key);
 		}
 
-		_FORCEINLINE_ static constexpr void inv_mix_columns(state_t& _state) noexcept
+		_FORCEINLINE_ static void inv_mix_columns(state_t& _state) noexcept
 		{
-			uint8_t a{ }, b{ }, c{ }, d{ };
+			uint8_t a, b, c, d;
 
-			for (uint32_t i = 0; i != 4; ++i)
-			{
+			for (uint32_t i = 0; i != 4; ++i) {
 				a = _state[i][0];
 				b = _state[i][1];
 				c = _state[i][2];
@@ -518,24 +485,8 @@ namespace _NAMESPACE_
 			}
 		}
 
-		_FORCEINLINE_ static constexpr void inv_shift_rows(state_t& _state) noexcept
+		_FORCEINLINE_ static void inv_shift_rows(state_t& _state) noexcept
 		{
-			/*
-			* reversed shift rows
-
-					  ---------------        ---------------
-			Column -> | 35 36 37 38 |	 ->  | 35 36 37 38 |  nothing
-					  | 46 47 48 45 |	 ->  | 45 46 47 48 |  1 Right or 3 Left
-					  | 57 58 55 56 |	 ->  | 55 56 57 58 |  2 Right or 2 Left
-					  | 68 65 66 67 |	 ->  | 65 66 67 68 |  3 Right or 1 Left
-					  ---------------        ---------------
-						^
-						|
-					   Row
-
-			state[ROW][COLUMN]
-			*/
-
 			// Column 2
 			uint8_t tmp = _state[3][1];		// tmp -> 45
 			_state[3][1] = _state[2][1];	// 45 -> 48
@@ -559,10 +510,9 @@ namespace _NAMESPACE_
 			_state[3][3] = tmp;				// 67 -> tmp (68)
 		}
 
-		_FORCEINLINE_ static constexpr void inv_sub_bytes(state_t& _state) noexcept
+		_FORCEINLINE_ static void inv_sub_bytes(state_t& _state) noexcept
 		{
-			uint8_t* const state = (uint8_t*)_state;
-
+			uint8_t* const state = reinterpret_cast<uint8_t*>(_state);
 			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
 				state[i] = detail::inv_sbox[state[i]];
 			}
@@ -576,10 +526,12 @@ namespace _NAMESPACE_
 			const size_t rounds = columns + 6;
 			const size_t end = Nb * (rounds + 1);
 
-			detail::memcpy(_out_round_key, _key, _keysize);
+			for (size_t i = 0; i != _keysize; ++i) {
+				_out_round_key[i] = _key[i];
+			}
 
 			uint8_t tmp[4]{ };
-			for (uint32_t i = columns; i != end; ++i)
+			for (size_t i = columns; i != end; ++i)
 			{
 				tmp[0] = _out_round_key[(i - 1) * 4 + 0];
 				tmp[1] = _out_round_key[(i - 1) * 4 + 1];
@@ -613,20 +565,12 @@ namespace _NAMESPACE_
 				_out_round_key[i * 4 + 3] = _out_round_key[(i - columns) * 4 + 3] ^ tmp[3];
 			}
 		}
-		
+
 		static constexpr void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
 		{
 			uint8_t* const state = (uint8_t*)_state;
 			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
 				state[x] ^= _round_key[x];
-			}
-		}
-
-		static constexpr void xor_blocks(state_t& _state, const uint8_t* _block) noexcept
-		{
-			uint8_t* const state = (uint8_t*)_state;
-			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
-				state[x] ^= _block[x];
 			}
 		}
 
@@ -637,10 +581,25 @@ namespace _NAMESPACE_
 			}
 		}
 
+		static constexpr void xor_blocks(uint8_t* _block1, const uint8_t* _block2) noexcept
+		{
+			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
+				_block1[x] ^= _block2[x];
+			}
+		}
+
 		static constexpr void check_data(const size_t _size)
 		{
 			if (_size == 0 || _size % BLOCK_SIZE != 0) {
 				throw("Inavlid _datasize specified.");
+			}
+		}
+
+		template <class Ty>
+		static constexpr void copy_block(Ty* _dst, const Ty* _src)
+		{
+			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
+				_dst[i] = _src[i];
 			}
 		}
 	};
