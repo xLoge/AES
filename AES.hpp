@@ -239,25 +239,6 @@ namespace _AES_NAMESPACE_
 		}
 
 		// Cipher feedback mode, encrypt
-		_AES_CONSTEXPR_FUNC_ void encrypt_cfb8(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
-		{
-			check_data(_datasize);
-
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
-
-			block_t block{ };
-			copy_block(block, _iv);
-
-			for (size_t i = 0; i < _datasize; ++i)
-			{
-				encrypt_block(block, expkey, m_keysize);
-				xor_blocks(block, _data + i);
-				_data[i] = block[0];
-			}
-		}
-
-		// Cipher feedback mode, encrypt
 		_AES_CONSTEXPR_FUNC_ void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
 		{
 			check_data(_datasize);
