@@ -3,13 +3,13 @@
 
 #define _AES_NAMESPACE_ AES
 
-#if __cplusplus < 201402L
-#define _AES_CONSTEXPR_FUNC_
-#define _AES_CONSTEXPR_ const
-#else
+#if __cpp_constexpr >= 201304L
 #define _AES_CONSTEXPR_FUNC_ constexpr
 #define _AES_CONSTEXPR_ constexpr
-#endif // __cplusplus
+#else
+#define _AES_CONSTEXPR_FUNC_
+#define _AES_CONSTEXPR_ const
+#endif // __cpp_constexpr
 
 #ifdef _MSC_VER
 #define _AES_FORCEINLINE_ __forceinline
