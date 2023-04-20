@@ -17,3 +17,6 @@ int main()
     aes.encrypt_cbc(data, 16, key, iv);
 }
 ```
+
+Output:
+a4 59 da 3b cc a0 7a 9f 28 9f b6 59 98 a7 53 d2
