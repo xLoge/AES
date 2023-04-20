@@ -13,7 +13,7 @@ int main()
     uint8_t key[16] = { 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 14 };
     uint8_t iv[16] = { 2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13 };
 
-    constexpr AES::AES aes(AES::AES128);
+    AES::AES aes(AES::AES128);
     aes.encrypt_cbc(data, 16, key, iv);
 }
 ```
