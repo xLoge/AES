@@ -18,5 +18,4 @@ int main()
 }
 ```
 
-Output:
-a4 59 da 3b cc a0 7a 9f 28 9f b6 59 98 a7 53 d2
+Output: { A4 59 DA 3B CC A0 7A 9F 28 9F B6 59 98 A7 53 D2 }
