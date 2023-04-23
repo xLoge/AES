@@ -2,56 +2,33 @@
 #include <iostream>
 #include "AES.hpp"
 
-template <size_t N>
-auto to_array(const char (&str)[N]) 
-{
-    static_assert(N % 16 != 0, "String size not divisible by 16");
-    AES::detail::array<uint8_t, N> data;
-    for (size_t i = 0; i != N; ++i) {
-        data[i] = str[i];
-    }
-    return data;
-};
-
-auto print_aes(const uint8_t* data, size_t size)
+void print_block(const uint8_t* data, size_t size = 16)
 {
     std::cout << "00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F\n" << "------------------------------------------------\n";
 	for (size_t i = 0; i != size; ++i) {
-        const auto curr = (int)data[i];
-        if (i % 8 == 0 && i != 0) {
+        const int curr = static_cast<int>(data[i]);
+        if (i && i % 8 == 0) {
             std::cout << ' ';
         }
-        if (i % 16 == 0 && i != 0) {
+        if (i && i % 16 == 0) {
             std::cout << '\n';
         }
         if (curr <= 0xF) {
             std::cout << '0';
         }
-        std::cout << std::hex << curr << ' ';
+        std::cout << std::uppercase << std::hex << curr << ' ';
 	}
     std::cout << "\n\n";
 };
 
 int main()
 {
-    const auto DATASIZE = 16;
+    uint8_t data[16] = { 0x6B, 0xC1, 0xBE, 0xE2, 0x2E, 0x40, 0x9F, 0x96, 0xE9, 0x3D, 0x7E, 0x11, 0x73, 0x93, 0x17, 0x2A };
+    uint8_t key[16] = { 0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C };
+    uint8_t iv[16] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
 
-	auto data = to_array("SUPER SECURE ..."); // LEN 16
-	auto key  = to_array("SUPER SECURE KEY"); // LEN 16
-	auto iv   = to_array("SUPER SECURE IV "); // LEN 16
+    AES::AES aes(AES::AES128);
+    aes.encrypt_cbc(data, 16, key, iv);
 
-	AES::AES aes(AES::AES128);
-
-    std::cout << "Plain:\n";
-	print_aes(&data[0], DATASIZE);
-
-	aes.encrypt_cbc(&data[0], DATASIZE, &key[0], &iv[0]);
-
-	std::cout << "Encrypted:\n";
-	print_aes(&data[0], DATASIZE);
-
-	aes.decrypt_cbc(&data[0], DATASIZE, &key[0], &iv[0]);
-
-	std::cout << "Decrypted:\n";
-	print_aes(&data[0], DATASIZE);
+    print_block(data);
 }
