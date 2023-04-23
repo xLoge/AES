@@ -22,10 +22,11 @@ int main()
 Output: { 76 49 AB AC 81 19 B2 46  CE E9 8E 9B 12 E9 19 7D }
 
 # Size
+Size with example above
 
 ```
 $ g++ -Os -c AES.cpp
-$ size AES.o 
-  text    data     bss     dec     hex filename
-    48       0       0      48      30 AES.o
+$ size AES.o     
+   text    data     bss     dec     hex filename
+   1620       0       0    1620     654 AES.o
 ```
