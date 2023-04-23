@@ -26,7 +26,7 @@ Size with the [Usage](../../../AES#usage) example.
 
 ```
 $ g++ -Os -c AES.cpp
-$ size AES.o     
+$ size AES.o        
    text    data     bss     dec     hex filename
-   1620       0       0    1620     654 AES.o
+   1604       0       0    1604     644 AES.o
 ```
