@@ -30,3 +30,10 @@ $ size AES.o
    text    data     bss     dec     hex filename
    1604       0       0    1604     644 AES.o
 ```
+
+# Speed
+Tested on **I5 12400F** | C++23 | 512MB | CBC-Mode:
+```
+g++ -Ofast | around 2300ms.
+MSVC Release | around 3200ms.
+```
