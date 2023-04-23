@@ -2,8 +2,8 @@
  
 * I made this class to learn how AES works
 * The class should have no errors, but if you find one please [open a issue](../../issues/new/choose) :smile:
-* **C++11**
 * Lightweight
+* **C++11**
 
 # Usage
 
