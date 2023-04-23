@@ -2,6 +2,7 @@
 #define _LOGE_AES_
 
 #define _AES_NAMESPACE_ AES
+#define _AES_CLASS_ AES
 
 #if __cpp_constexpr >= 201304L
 #define _AES_CONSTEXPR_FUNC_ constexpr
@@ -20,6 +21,7 @@
 
 namespace _AES_NAMESPACE_
 {
+	typedef signed int int32_t;
 	typedef unsigned char uint8_t;
 	typedef unsigned short uint16_t;
 	typedef unsigned int uint32_t;
@@ -127,27 +129,34 @@ namespace _AES_NAMESPACE_
 
 namespace _AES_NAMESPACE_
 {
-	class AES
+	class _AES_CLASS_
 	{
-	private:
+	protected:
 		static _AES_CONSTEXPR_ AES_KEY_LEN DEFAULT_MODE = AES_KEY_LEN::AES128;
-		static _AES_CONSTEXPR_ size_t Nb = 4;
 		static _AES_CONSTEXPR_ size_t BLOCK_SIZE = 16;
-		static _AES_CONSTEXPR_ size_t MAX_EXPKEY_SIZE = 4 * (Nb * (14 + 1));
+		static _AES_CONSTEXPR_ size_t MAX_EXPKEY_SIZE = 240;
 
-		using state_t = uint8_t[4][Nb]; // Row, Column
+		using state_t = uint8_t[4][4]; // Row, Column
 		using block_t = uint8_t[BLOCK_SIZE];
-		using expkey_t = uint8_t[MAX_EXPKEY_SIZE];
+		using exkey_t = uint8_t[MAX_EXPKEY_SIZE];
 
-		uint16_t m_keysize = DEFAULT_MODE / 8;
+		const uint16_t KEY_SIZE = DEFAULT_MODE / 8;
 	public:
 
-		_AES_CONSTEXPR_FUNC_ AES() = default;
+		_AES_CONSTEXPR_FUNC_ _AES_CLASS_() = default;
 
-		_AES_CONSTEXPR_FUNC_ AES(const AES_KEY_LEN _keymode) noexcept
-			: m_keysize(_keymode / 8)
+		_AES_CONSTEXPR_FUNC_ _AES_CLASS_(const AES_KEY_LEN _keymode) noexcept
+			: KEY_SIZE(_keymode / 8)
 		{
 
+		}
+
+		_AES_CONSTEXPR_FUNC_ _AES_CLASS_(const uint16_t _keybits)
+			: KEY_SIZE(_keybits / 8)
+		{
+			if (_keybits % 32 != 0 || _keybits < AES128) {
+				throw("Provided keybits are invalid");
+			}
 		}
 
 		// Cipher block chaining mode, encrypt
@@ -155,8 +164,8 @@ namespace _AES_NAMESPACE_
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
 			block_t block{ };
 			copy_block(block, _iv);
@@ -165,7 +174,7 @@ namespace _AES_NAMESPACE_
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				xor_blocks(block, _data);
-				encrypt_block(block, expkey, m_keysize);
+				encrypt_block(block, expkey, KEY_SIZE);
 				copy_block(_data, block);
 			}
 		}
@@ -175,8 +184,8 @@ namespace _AES_NAMESPACE_
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
 			block_t block{ };
 			block_t cipher_block{ };
@@ -186,7 +195,7 @@ namespace _AES_NAMESPACE_
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				copy_block(cipher_block, _data);
-				decrypt_block(_data, expkey, m_keysize);
+				decrypt_block(_data, expkey, KEY_SIZE);
 				xor_blocks(_data, block);
 				copy_block(block, cipher_block);
 			}
@@ -197,8 +206,8 @@ namespace _AES_NAMESPACE_
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
 			block_t block{ };
 			block_t plain_block{ };
@@ -209,7 +218,7 @@ namespace _AES_NAMESPACE_
 			{
 				copy_block(plain_block, _data);
 				xor_blocks(block, _data);
-				encrypt_block(block, expkey, m_keysize);
+				encrypt_block(block, expkey, KEY_SIZE);
 				copy_block(_data, block);
 				xor_blocks(block, plain_block);
 			}
@@ -220,8 +229,8 @@ namespace _AES_NAMESPACE_
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
 			block_t block{ };
 			block_t cipher_block{ };
@@ -231,20 +240,62 @@ namespace _AES_NAMESPACE_
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				copy_block(cipher_block, _data);
-				decrypt_block(_data, expkey, m_keysize);
+				decrypt_block(_data, expkey, KEY_SIZE);
 				xor_blocks(_data, block, _data);
 				xor_blocks(cipher_block, _data);
 				copy_block(block, cipher_block);
 			}
 		}
 
-		// Cipher feedback mode, encrypt
+		// Cipher feedback mode 8 Bit, encrypt
+		_AES_CONSTEXPR_FUNC_ void encrypt_cfb8(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		{
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
+
+			block_t block{ };
+			block_t crypt_block{ };
+			copy_block(block, _iv);
+
+			const uint8_t* const end = _data + _datasize;
+			for (; _data != end; _data += 1)
+			{
+				copy_block(crypt_block, block);
+				encrypt_block(crypt_block, expkey, KEY_SIZE);
+				copy_block(block, &block[1]);
+				_data[0] ^= crypt_block[0];
+				block[BLOCK_SIZE - 1] = _data[0];
+			}
+		}
+
+		// Cipher feedback mode 8 Bit, decrypt
+		_AES_CONSTEXPR_FUNC_ void decrypt_cfb8(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const noexcept
+		{
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
+
+			block_t block{ };
+			block_t crypt_block{ };
+			copy_block(block, _iv);
+
+			const uint8_t* const end = _data + _datasize;
+			for (; _data != end; _data += 1)
+			{
+				copy_block(crypt_block, block);
+				encrypt_block(crypt_block, expkey, KEY_SIZE);
+				copy_block(block, &block[1]);
+				block[BLOCK_SIZE - 1] = _data[0];
+				_data[0] ^= crypt_block[0];
+			}
+		}
+
+		// Cipher feedback mode 128 Bit, encrypt
 		_AES_CONSTEXPR_FUNC_ void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
 			block_t block{ };
 			copy_block(block, _iv);
@@ -252,19 +303,19 @@ namespace _AES_NAMESPACE_
 			const size_t end = _datasize / BLOCK_SIZE;
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
-				encrypt_block(block, expkey, m_keysize);
+				encrypt_block(block, expkey, KEY_SIZE);
 				xor_blocks(_data, block);
 				copy_block(block, _data);
 			}
 		}
 
-		// Cipher feedback mode, decrypt
+		// Cipher feedback mode 128 Bit, decrypt
 		_AES_CONSTEXPR_FUNC_ void decrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
 			block_t block{ };
 			block_t cipher_block{ };
@@ -274,37 +325,44 @@ namespace _AES_NAMESPACE_
 			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
 			{
 				copy_block(cipher_block, block);
-				encrypt_block(cipher_block, expkey, m_keysize);
+				encrypt_block(cipher_block, expkey, KEY_SIZE);
 				copy_block(block, _data);
 				xor_blocks(_data, cipher_block);
 			}
 		}
 
 		// Counter mode, encrypt and decrypt
-		_AES_CONSTEXPR_FUNC_ void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const
+		_AES_CONSTEXPR_FUNC_ void encrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce, const size_t _counter_state = 0) const
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
-			size_t counter{ };
+			block_t counter{ };
 			block_t counter_block{ };
+			copy_block(counter, _nonce);
 
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			for (size_t i = 0; i != _counter_state; ++i) 
 			{
-				combine_nonce_counter(counter_block, _nonce, counter);
-				encrypt_block(counter_block, expkey, m_keysize);
+				increment_counter(counter);
+			}
+
+			const uint8_t* const end = _data + _datasize;
+			for (; _data != end; _data += BLOCK_SIZE)
+			{
+				copy_block(counter_block, counter);
+				encrypt_block(counter_block, expkey, KEY_SIZE);
 				xor_blocks(_data, counter_block);
-				counter += 1;
+				increment_counter(counter);
 			}
 		}
 
 		// Counter mode, decrypt and encrypt 
-		_AES_CONSTEXPR_FUNC_ void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce) const
+		_AES_CONSTEXPR_FUNC_ void decrypt_ctr(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _nonce, const size_t _block_pos = 0, const size_t _counter_state = 0) const
 		{
-			encrypt_ctr(_data, _datasize, _key, _nonce);
+			check_block(_block_pos, _datasize);
+			encrypt_ctr(_data + (_block_pos * BLOCK_SIZE), _datasize - (_block_pos * BLOCK_SIZE), _key, _nonce, _counter_state + _block_pos);
 		}
 
 		// Output feedback mode, encrypt and decrypt
@@ -312,17 +370,17 @@ namespace _AES_NAMESPACE_
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
 			block_t block{ };
 			copy_block(block, _iv);
 
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			const uint8_t* const end = _data + _datasize;
+			for (; _data != end; _data += BLOCK_SIZE)
 			{
-				encrypt_block(block, expkey, m_keysize);
-				xor_blocks(_data, block, _data);
+				encrypt_block(block, expkey, KEY_SIZE);
+				xor_blocks(_data, block);
 			}
 		}
 
@@ -337,73 +395,76 @@ namespace _AES_NAMESPACE_
 		{
 			check_data(_datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			const uint8_t* const end = _data + _datasize;
+			for (; _data != end; _data += BLOCK_SIZE)
 			{
-				encrypt_block(_data, expkey, m_keysize);
+				encrypt_block(_data, expkey, KEY_SIZE);
 			}
 		}
 
 		// Electronic codebook mode, decrypt
-		_AES_CONSTEXPR_FUNC_ void decrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key) const
+		_AES_CONSTEXPR_FUNC_ void decrypt_ecb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const size_t _block_pos = 0) const
 		{
 			check_data(_datasize);
+			check_block(_block_pos, _datasize);
 
-			expkey_t expkey{ };
-			key_expansion(_key, expkey, m_keysize);
+			exkey_t expkey{ };
+			key_expansion(_key, expkey, KEY_SIZE);
 
-			const size_t end = _datasize / BLOCK_SIZE;
-			for (size_t i = 0; i != end; ++i, _data += BLOCK_SIZE)
+			const uint8_t* const end = _data + _datasize;
+			_data += _block_pos * BLOCK_SIZE;
+			for (; _data != end; _data += BLOCK_SIZE)
 			{
-				decrypt_block(_data, expkey, m_keysize);
+				decrypt_block(_data, expkey, KEY_SIZE);
 			}
 		}
 
 		_AES_CONSTEXPR_FUNC_ uint16_t keysize() const noexcept
 		{
-			return m_keysize;
+			return KEY_SIZE;
 		}
 
 	private:
-		_AES_FORCEINLINE_ static void combine_nonce_counter(block_t& _combined, const uint8_t* _nonce, size_t _counter) noexcept
+		static _AES_CONSTEXPR_FUNC_ void increment_counter(block_t& _counter) noexcept
 		{
-			block_t counter_block{ };
-			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
-				counter_block[(BLOCK_SIZE - 1) - i] = static_cast<uint8_t>(_counter & 0xFF);
-				_counter >>= 8;
+			for (size_t i = BLOCK_SIZE - 1, counter = 1; i != 0; --i)
+			{
+				counter += _counter[i];
+				_counter[i] = counter;
+				counter >>= 8;
 			}
-			xor_blocks(_nonce, counter_block, _combined);
 		}
 
-		static void encrypt_block(uint8_t* _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		static void encrypt_block(uint8_t* _state, const uint8_t* _round_key, const uint16_t _keysize) noexcept
 		{
 			state_t& state = *reinterpret_cast<state_t*>(_state);
-			const uint32_t rounds = _keysize / 4 + 6;
+			const uint16_t rounds = (_keysize / 4) + 6;
 
 			add_round_key(state, _round_key);
 
-			for (uint32_t round = 1; round != rounds; ++round)
+			for (size_t round = 1; round != rounds; ++round)
 			{
 				sub_bytes(state);
 				shift_rows(state);
 				mix_columns(state);
-				add_round_key(state, &_round_key[round * (Nb * 4)]);
+				add_round_key(state, &_round_key[round * 16]);
 			}
 
 			sub_bytes(state);
 			shift_rows(state);
-			add_round_key(state, &_round_key[rounds * (Nb * 4)]);
+			add_round_key(state, &_round_key[rounds * 16]);
 		}
 
-		_AES_FORCEINLINE_ static void mix_columns(state_t& _state) noexcept
+		static _AES_CONSTEXPR_ _AES_FORCEINLINE_ void mix_columns(state_t& _state) noexcept
 		{
-			uint8_t a, b, c, d, tmp;
+			using namespace detail;
+			uint8_t a{ }, b{ }, c{ }, d{ }, tmp{ };
 
-			for (uint32_t i = 0; i != 4; ++i) {
-				using namespace detail;
+			for (int32_t i = 0; i != 4; ++i)
+			{
 				a = _state[i][0];
 				b = _state[i][1];
 				c = _state[i][2];
@@ -416,52 +477,47 @@ namespace _AES_NAMESPACE_
 				_state[i][3] ^= gmul2[d ^ a] ^ tmp;
 			}
 		}
-		
-		_AES_FORCEINLINE_ static _AES_CONSTEXPR_FUNC_ void shift_rows(state_t& _state) noexcept
+
+		static _AES_CONSTEXPR_FUNC_ _AES_FORCEINLINE_ void shift_rows(state_t& _state) noexcept
 		{
-			// Column 2
-			uint8_t tmp = _state[0][1];		// tmp -> 45
-			_state[0][1] = _state[1][1];	// 45 -> 46
-			_state[1][1] = _state[2][1];	// 46 -> 47
-			_state[2][1] = _state[3][1];	// 47 -> 48
-			_state[3][1] = tmp;				// 48 -> tmp (45)
-
-			// Column 3
-			tmp = _state[0][2];				// tmp -> 55
-			_state[0][2] = _state[2][2];	// 55 -> 57
-			_state[2][2] = tmp;				// 57 -> tmp (55)
-			tmp = _state[1][2];				// tmp -> 56
-			_state[1][2] = _state[3][2];	// 56 -> 58
-			_state[3][2] = tmp;				// 58 -> tmp (56)
-
-			// Column 4
-			tmp = _state[3][3];				// tmp -> 68
-			_state[3][3] = _state[2][3];	// 68 -> 67
-			_state[2][3] = _state[1][3];	// 67 -> 66
-			_state[1][3] = _state[0][3];	// 66 -> 65
-			_state[0][3] = tmp;				// 65 -> tmp (68)
+			uint8_t tmp = _state[0][1];
+			_state[0][1] = _state[1][1];
+			_state[1][1] = _state[2][1];
+			_state[2][1] = _state[3][1];
+			_state[3][1] = tmp;
+			tmp = _state[0][2];
+			_state[0][2] = _state[2][2];
+			_state[2][2] = tmp;
+			tmp = _state[1][2];
+			_state[1][2] = _state[3][2];
+			_state[3][2] = tmp;
+			tmp = _state[3][3];
+			_state[3][3] = _state[2][3];
+			_state[2][3] = _state[1][3];
+			_state[1][3] = _state[0][3];
+			_state[0][3] = tmp;
 		}
 
-		_AES_FORCEINLINE_ static void sub_bytes(state_t& _state) noexcept
+		static _AES_FORCEINLINE_ void sub_bytes(state_t& _state) noexcept
 		{
-			uint8_t* const state = reinterpret_cast<uint8_t*>(_state);
-			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
+			uint8_t* const state = reinterpret_cast<uint8_t* const>(_state);
+			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
 				state[i] = detail::sbox[state[i]];
 			}
 		}
 
-		static void decrypt_block(uint8_t* _state, const uint8_t* _round_key, const uint32_t _keysize) noexcept
+		static void decrypt_block(uint8_t* _state, const uint8_t* _round_key, const uint16_t _keysize) noexcept
 		{
 			state_t& state = *reinterpret_cast<state_t*>(_state);
-			const uint32_t rounds = _keysize / 4 + 6;
+			const uint16_t rounds = (_keysize / 4) + 6;
 
-			add_round_key(state, &_round_key[rounds * (Nb * 4)]);
+			add_round_key(state, &_round_key[rounds * 16]);
 
-			for (uint32_t round = rounds - 1; round != 0; --round)
+			for (size_t round = rounds - 1; round != 0; --round)
 			{
 				inv_shift_rows(state);
 				inv_sub_bytes(state);
-				add_round_key(state, &_round_key[round * (Nb * 4)]);
+				add_round_key(state, &_round_key[round * 16]);
 				inv_mix_columns(state);
 			}
 
@@ -470,17 +526,18 @@ namespace _AES_NAMESPACE_
 			add_round_key(state, _round_key);
 		}
 
-		_AES_FORCEINLINE_ static void inv_mix_columns(state_t& _state) noexcept
+		static _AES_CONSTEXPR_FUNC_ _AES_FORCEINLINE_ void inv_mix_columns(state_t& _state) noexcept
 		{
-			uint8_t a, b, c, d;
+			using namespace detail;
+			uint8_t a{ }, b{ }, c{ }, d{ };
 
-			for (uint32_t i = 0; i != 4; ++i) {
+			for (int32_t i = 0; i != 4; ++i)
+			{
 				a = _state[i][0];
 				b = _state[i][1];
 				c = _state[i][2];
 				d = _state[i][3];
 
-				using namespace detail;
 				_state[i][0] = gmul14[a] ^ gmul11[b] ^ gmul13[c] ^ gmul9[d];
 				_state[i][1] = gmul9[a] ^ gmul14[b] ^ gmul11[c] ^ gmul13[d];
 				_state[i][2] = gmul13[a] ^ gmul9[b] ^ gmul14[c] ^ gmul11[d];
@@ -488,46 +545,41 @@ namespace _AES_NAMESPACE_
 			}
 		}
 
-		_AES_FORCEINLINE_ static _AES_CONSTEXPR_FUNC_ void inv_shift_rows(state_t& _state) noexcept
+		static _AES_CONSTEXPR_FUNC_ _AES_FORCEINLINE_ void inv_shift_rows(state_t& _state) noexcept
 		{
-			// Column 2
-			uint8_t tmp = _state[3][1];		// tmp -> 45
-			_state[3][1] = _state[2][1];	// 45 -> 48
-			_state[2][1] = _state[1][1];	// 48 -> 47
-			_state[1][1] = _state[0][1];	// 47 -> 46
-			_state[0][1] = tmp;				// 46 -> tmp (45)
-
-			// Column 3
-			tmp = _state[0][2];				// tmp -> 57
-			_state[0][2] = _state[2][2];	// 57 -> 55
-			_state[2][2] = tmp;				// 55 -> tmp (57)
-			tmp = _state[1][2];				// tmp -> 58
-			_state[1][2] = _state[3][2];	// 58 -> 56
-			_state[3][2] = tmp;				// 56 -> tmp (58)
-
-			// Column 4
-			tmp = _state[0][3];				// tmp -> 68
-			_state[0][3] = _state[1][3];	// 68 -> 65
-			_state[1][3] = _state[2][3];	// 65 -> 66
-			_state[2][3] = _state[3][3];	// 66 -> 67
-			_state[3][3] = tmp;				// 67 -> tmp (68)
+			uint8_t tmp = _state[3][1];
+			_state[3][1] = _state[2][1];
+			_state[2][1] = _state[1][1];
+			_state[1][1] = _state[0][1];
+			_state[0][1] = tmp;
+			tmp = _state[0][2];
+			_state[0][2] = _state[2][2];
+			_state[2][2] = tmp;
+			tmp = _state[1][2];
+			_state[1][2] = _state[3][2];
+			_state[3][2] = tmp;		
+			tmp = _state[0][3];	
+			_state[0][3] = _state[1][3];
+			_state[1][3] = _state[2][3];
+			_state[2][3] = _state[3][3];
+			_state[3][3] = tmp;
 		}
 
-		_AES_FORCEINLINE_ static void inv_sub_bytes(state_t& _state) noexcept
+		static _AES_FORCEINLINE_ void inv_sub_bytes(state_t& _state) noexcept
 		{
-			uint8_t* const state = reinterpret_cast<uint8_t*>(_state);
-			for (uint32_t i = 0; i != BLOCK_SIZE; ++i) {
+			uint8_t* const state = reinterpret_cast<uint8_t* const>(_state);
+			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
 				state[i] = detail::inv_sbox[state[i]];
 			}
 		}
 
-		static _AES_CONSTEXPR_FUNC_ void key_expansion(const uint8_t* _key, uint8_t* _out_round_key, const uint32_t _keysize) noexcept
+		static _AES_CONSTEXPR_FUNC_ void key_expansion(const uint8_t* _key, uint8_t* _out_round_key, const uint16_t _keysize) noexcept
 		{
 			using namespace detail;
 
 			const size_t columns = _keysize / 4;
 			const size_t rounds = columns + 6;
-			const size_t end = Nb * (rounds + 1);
+			const size_t end = 4 * (rounds + 1);
 
 			for (size_t i = 0; i != _keysize; ++i) {
 				_out_round_key[i] = _key[i];
@@ -571,23 +623,30 @@ namespace _AES_NAMESPACE_
 
 		static void add_round_key(state_t& _state, const uint8_t* _round_key) noexcept
 		{
-			uint8_t* const state = reinterpret_cast<uint8_t*>(_state);
-			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
-				state[x] ^= _round_key[x];
+			uint8_t* const state = reinterpret_cast<uint8_t* const>(_state);
+			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
+				state[i] ^= _round_key[i];
 			}
 		}
 
 		static _AES_CONSTEXPR_FUNC_ void xor_blocks(const uint8_t* _block1, const uint8_t* _block2, uint8_t* _dest) noexcept
 		{
-			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
-				_dest[x] = _block1[x] ^ _block2[x];
+			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
+				_dest[i] = _block1[i] ^ _block2[i];
 			}
 		}
 
 		static _AES_CONSTEXPR_FUNC_ void xor_blocks(uint8_t* _block1, const uint8_t* _block2) noexcept
 		{
-			for (uint32_t x = 0; x != BLOCK_SIZE; ++x) {
-				_block1[x] ^= _block2[x];
+			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
+				_block1[i] ^= _block2[i];
+			}
+		}
+
+		static _AES_CONSTEXPR_FUNC_ void copy_block(uint8_t* _dst, const uint8_t* _src) noexcept
+		{
+			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
+				_dst[i] = _src[i];
 			}
 		}
 
@@ -598,11 +657,10 @@ namespace _AES_NAMESPACE_
 			}
 		}
 
-		template <class Ty>
-		static _AES_CONSTEXPR_FUNC_ void copy_block(Ty* _dst, const Ty* _src)
+		static _AES_CONSTEXPR_FUNC_ void check_block(const size_t _pos, const size_t _max)
 		{
-			for (size_t i = 0; i != BLOCK_SIZE; ++i) {
-				_dst[i] = _src[i];
+			if (_pos * BLOCK_SIZE > _max - BLOCK_SIZE) {
+				throw("Inavlid _block_pos specified.");
 			}
 		}
 	};
@@ -611,6 +669,7 @@ namespace _AES_NAMESPACE_
 #undef _AES_CONSTEXPR_FUNC_
 #undef _AES_CONSTEXPR_
 #undef _AES_FORCEINLINE_
+#undef _AES_CLASS_
 #undef _AES_NAMESPACE_
 
 #endif // _LOGE_AES_
