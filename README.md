@@ -30,4 +30,3 @@ $ size AES.o
    text    data     bss     dec     hex filename
    1620       0       0    1620     654 AES.o
 ```
-3.856 Bytes
