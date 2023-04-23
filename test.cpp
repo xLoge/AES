@@ -2,7 +2,7 @@
 #include <iostream>
 #include "AES.hpp"
 
-void print_block(const uint8_t* data, size_t size = 16)
+void print_block(const uint8_t* data, size_t size)
 {
     std::cout << "00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F\n" << "------------------------------------------------\n";
 	for (size_t i = 0; i != size; ++i) {
@@ -30,5 +30,5 @@ int main()
     AES::AES aes(AES::AES128);
     aes.encrypt_cbc(data, 16, key, iv);
 
-    print_block(data);
+    print_block(data, 16);
 }
