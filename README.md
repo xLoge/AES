@@ -19,7 +19,7 @@ int main()
 }
 ```
 
-**Output: {** 76 49 AB AC 81 19 B2 46  CE E9 8E 9B 12 E9 19 7D **}**
+**Output: {** ```76 49 AB AC 81 19 B2 46  CE E9 8E 9B 12 E9 19 7D``` **}**
 
 # Size
 Size with the [Usage](../../../AES#usage) example.
