@@ -1,7 +1,7 @@
 # AES
  
 * I made this class to learn how AES works
-* The class should have no errors, but if you find one please open a issue :)
+* The class should have no errors, but if you find one please open a issue :smile:
 * C++11 and above
 * Lightweight
 
