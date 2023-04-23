@@ -8,7 +8,7 @@
 #define _AES_CONSTEXPR_FUNC_ constexpr
 #define _AES_CONSTEXPR_ constexpr
 #else
-#define _AES_CONSTEXPR_FUNC_
+#define _AES_CONSTEXPR_FUNC_ 
 #define _AES_CONSTEXPR_ const
 #endif // __cpp_constexpr
 
@@ -45,7 +45,7 @@ namespace _AES_NAMESPACE_
 			}
 		};
 
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> sbox = {
+		_AES_CONSTEXPR_ array<uint8_t, 256> sbox = {
 			0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
 			0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
 			0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
@@ -64,7 +64,7 @@ namespace _AES_NAMESPACE_
 			0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 		};
 
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> inv_sbox = {
+		_AES_CONSTEXPR_ array<uint8_t, 256> inv_sbox = {
 			0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
 			0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
 			0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
@@ -83,16 +83,16 @@ namespace _AES_NAMESPACE_
 			0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 		};
 
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 11> rcon = {
-			0x8D, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36
+		_AES_CONSTEXPR_ array<uint8_t, 10> rcon = {
+			0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36
 		};
 
-		_AES_CONSTEXPR_FUNC_ uint8_t xtime(const uint8_t _byte)
+		_AES_CONSTEXPR_FUNC_ const uint8_t xtime(const uint8_t _byte)
 		{
 			return ((_byte << 0x01) ^ (((_byte >> 0x07) & 0x01) * 0x1B));
 		}
 
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> gmul_table(const uint8_t _byte)
+		_AES_CONSTEXPR_FUNC_ const array<uint8_t, 256> gmul_table(const uint8_t _byte)
 		{
 			array<uint8_t, 256> table{ };
 			for (size_t input = 0; input != 256; ++input) {
@@ -102,16 +102,16 @@ namespace _AES_NAMESPACE_
 					((_byte >> 2 & 1) * xtime(xtime(input))) ^
 					((_byte >> 3 & 1) * xtime(xtime(xtime(input)))) ^
 					((_byte >> 4 & 1) * xtime(xtime(xtime(xtime(input)))))
-					);
+				);
 			}
 			return table;
 		}
 
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> gmul02 = gmul_table(0x02);
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> gmul09 = gmul_table(0x09);
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> gmul11 = gmul_table(0x0B);
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> gmul13 = gmul_table(0x0D);
-		_AES_CONSTEXPR_FUNC_ array<uint8_t, 256> gmul14 = gmul_table(0x0E);
+		_AES_CONSTEXPR_ array<uint8_t, 256> gmul02 = gmul_table(0x02);
+		_AES_CONSTEXPR_ array<uint8_t, 256> gmul09 = gmul_table(0x09);
+		_AES_CONSTEXPR_ array<uint8_t, 256> gmul11 = gmul_table(0x0B);
+		_AES_CONSTEXPR_ array<uint8_t, 256> gmul13 = gmul_table(0x0D);
+		_AES_CONSTEXPR_ array<uint8_t, 256> gmul14 = gmul_table(0x0E);
 	}
 }
 
@@ -152,7 +152,7 @@ namespace _AES_NAMESPACE_
 		_AES_CONSTEXPR_FUNC_ _AES_CLASS_(const size_t _keybits)
 			: KEY_SIZE(_keybits / 8)
 		{
-			if (_keybits % 32 != 0 || _keybits < AES128 || _keybits > AES256) {
+			if (_keybits % 32 != 0 || _keybits < AES_KEY_LEN::AES128 || _keybits > AES_KEY_LEN::AES256) {
 				throw("Provided keybits are invalid");
 			}
 		}
@@ -592,7 +592,7 @@ namespace _AES_NAMESPACE_
 					tmp[2] = sbox[tmp[2]];
 					tmp[3] = sbox[tmp[3]];
 
-					tmp[0] = tmp[0] ^ rcon[i / columns];
+					tmp[0] = tmp[0] ^ rcon[(i / columns) - 1];
 				}
 				else if (columns > 6 && i % columns == 4) {
 					tmp[0] = sbox[tmp[0]];
