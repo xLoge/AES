@@ -316,7 +316,7 @@ namespace _AES_NAMESPACE_
 		}
 
 		// Cipher feedback mode 128 Bit, encrypt
-		_AES_CONSTEXPR_FUNC_ void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv, const size_t _bits = BLOCK_SIZE * 8) const
+		_AES_CONSTEXPR_FUNC_ void encrypt_cfb(uint8_t* _data, const size_t _datasize, const uint8_t* _key, const uint8_t* _iv) const
 		{
 			check_data(_datasize);
 
