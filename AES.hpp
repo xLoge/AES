@@ -194,7 +194,7 @@ namespace _AES_NAMESPACE_
 		using block_t = uint8_t[BLOCK_SIZE];
 		using exkey_t = uint8_t[MAX_EXPKEY_SIZE];
 
-		const uint8_t ROUNDS = DEFAULT_MODE / 8;
+		const uint8_t ROUNDS = DEFAULT_MODE / 32 + 6;
 	public:
 
 		_AES_CONSTEXPR_11_ _AES_CLASS_() = default;
