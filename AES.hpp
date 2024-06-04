@@ -262,7 +262,7 @@ namespace _AES_NAMESPACE_
 				{
 					copy_block(crypt_block, block);
 					encrypt_block(crypt_block, expkey, rounds);
-					
+
 					block[0] <<= 1;
 					for (size_t i = 1; i < block_size; ++i)
 					{
@@ -617,7 +617,7 @@ namespace _AES_NAMESPACE_
 
 			xor_blocks(pstate, &roundkey[rounds * 16]);
 
-			for (size_t round = rounds - 1; round > 0; --round)
+			for (size_t round = static_cast<size_t>(rounds - 1); round > 0; --round)
 			{
 				inv_shift_rows(state);
 				inv_sub_bytes(pstate);
