@@ -32,8 +32,8 @@ $ size AES.o
 ```
 
 # Speed
-Tested on **I5 12400F** | AES128 | C++23 | 512MB | CBC-Mode:
+Tested on Intel i5 12400F | AES128 | C++23 | 512MB | CBC-Mode:
 ```
-$ g++ -Ofast   | around 220MBs
-$ MSVC Release | around 172MBs
+$ g++ (12.2) -Ofast  | around 220MBs
+$ MSVC(2022) Release | around 172MBs
 ```
