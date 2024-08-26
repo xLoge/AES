@@ -5,7 +5,7 @@
 * Lightweight
 * **C++11**
 
-# Usage
+# Usage Example
 
 ```C++
 int main()
