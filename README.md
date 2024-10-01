@@ -25,10 +25,10 @@ int main()
 Size with the [Usage](../../../AES#usage) example.
 
 ```
-$ g++ -Os -c AES.cpp
+$ g++ -std=c++11 -Os -o AES main.cpp
 $ size AES.o        
-   text    data     bss     dec     hex filename
-   1604       0       0    1604     644 AES.o
+   text    data     bss     dec     hex   filename
+   2069     616       8    2693     a85   AES
 ```
 
 # Speed
