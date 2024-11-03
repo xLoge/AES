@@ -21,6 +21,8 @@ void print_block(const uint8_t* data, size_t size)
     std::cout << "\n\n";
 };
 
+// Verify: https://emn178.github.io/online-tools/aes/encrypt/?input=6BC1BEE22E409F96E93D7E117393172A6BC1BEE22E409F96E93D7E117393172A6BC1BEE22E409F96E93D7E117393172A&source=text&input_type=hex&output_type=hex&key_size=128&mode=CBC&padding=NoPadding&key_type=custom&passphrase=2B7E151628AED2A6ABF7158809CF4F3C&hash=SHA384&salt_type=random&salt_input_type=utf-8&custom_iteration_enabled=1&iteration=0&key_input_type=hex&key=2B7E151628AED2A6ABF7158809CF4F3C&iv_input_type=hex&iv=000102030405060708090A0B0C0D0E0F
+
 int main()
 {
     uint8_t data[16] = { 0x6B, 0xC1, 0xBE, 0xE2, 0x2E, 0x40, 0x9F, 0x96, 0xE9, 0x3D, 0x7E, 0x11, 0x73, 0x93, 0x17, 0x2A };
